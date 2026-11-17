@@ -1,8 +1,8 @@
 /** The centred card both the sign-in and sign-up pages sit in. */
-export function AuthShell({ title, subtitle, children, footer }) {
+export function AuthShell({ title, subtitle, children, footer, wide }) {
   return (
     <main className="grid min-h-screen place-items-center px-4 py-5">
-      <div className="grid w-[min(400px,100%)] gap-4 rounded-card border border-line bg-surface p-6 shadow-card">
+      <div className={`grid ${wide ? 'w-[min(620px,100%)]' : 'w-[min(400px,100%)]'} gap-4 rounded-card border border-line bg-surface p-6 shadow-card`}>
         <div className="flex items-center gap-2.5 text-[17px] font-bold tracking-tight">
           <span className="relative inline-block size-7 rounded-full bg-accent" aria-hidden="true">
             <span className="absolute left-2 top-[7px] h-3.5 w-[5px] bg-accent-fg" />

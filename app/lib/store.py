@@ -39,7 +39,8 @@ _timer = None
 
 
 def blank_db():
-    return {'version': 1, 'leads': {}, 'settings': copy.deepcopy(DEFAULT_SETTINGS), 'assistant': {}}
+    return {'version': 1, 'leads': {}, 'settings': copy.deepcopy(DEFAULT_SETTINGS), 'assistant': {},
+            'messages': [], 'cvs': {}}
 
 
 def merge_settings(base, over):
@@ -69,6 +70,10 @@ def load():
     _db['leads'] = _db.get('leads') or {}
     if not isinstance(_db.get('assistant'), dict):
         _db['assistant'] = {}
+    if not isinstance(_db.get('messages'), list):
+        _db['messages'] = []   # notes from users to the administrators
+    if not isinstance(_db.get('cvs'), dict):
+        _db['cvs'] = {}        # per user: the notes typed on the CV page and the last CV built
     # keep leads saved by older versions usable
     gone = ['emails', 'emailManual', 'emailStatus', 'emailCheckedAt', 'emailError', 'siteTitle', 'siteText', 'siteDiscovered']
     for lead in _db['leads'].values():

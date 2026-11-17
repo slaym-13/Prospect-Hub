@@ -92,3 +92,22 @@
     outline-offset: 2px;
   }
 }
+
+/* The CV page prints only the CV: its print copy lives directly under <body>. */
+#cv-print {
+  display: none;
+}
+@media print {
+  @page {
+    margin: 16mm;
+  }
+  body {
+    background: #fff;
+  }
+  body > *:not(#cv-print) {
+    display: none !important;
+  }
+  #cv-print {
+    display: block;
+  }
+}

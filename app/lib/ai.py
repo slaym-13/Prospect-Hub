@@ -189,3 +189,114 @@ def template_draft(ctx):
         'subject': 'Internship application' + (': ' + clip(period, 60) if period else ''),
         'body': f"Hello,\n\nMy name is {s.get('name') or '[your name]'}{role}. {clip(s.get('background'), 300)}\n\nI am writing to apply for an internship{' (' + clip(period, 60) + ')' if period else ''} at {name}. Would you be open to a short conversation about it?\n\nBest regards,",
     }
+
+
+# ---------- CV ----------
+
+CV_SECTIONS = ('experience', 'education', 'projects')
+
+
+def cv_system_prompt(lang):
+    return '\n'.join([
+        'You turn the notes a person gives about themselves into a short, clean CV.',
+        'Use only the facts in <profile> and <cv_input>. Never invent an employer, school, date, grade, tool, '
+        'number or achievement. If a section has no facts, return an empty list for it.',
+        'Rewrite the notes into concise, active bullet points (at most 3 per item, 18 words each). Fix spelling. '
+        'Keep periods exactly as given.',
+        'The summary is two sentences at most, aimed at the target given, in plain words with no buzzwords.',
+        f"Write in {'English' if lang == 'en' else 'French'}. Plain text inside the JSON, no markdown.",
+        'Reply with JSON only, in this shape: {"summary":"...","experience":[{"title":"","org":"","period":"",'
+        '"points":[""]}],"education":[{"title":"","org":"","period":"","points":[""]}],'
+        '"projects":[{"title":"","org":"","period":"","points":[""]}],"skills":[""],"languages":[""]}',
+    ])
+
+
+def cv_user_prompt(profile, data):
+    p = profile
+    return '\n'.join([
+        f"<profile><name>{clip(p.get('fullName'), 120)}</name><headline>{clip(p.get('headline'), 160)}</headline>"
+        f"<city>{clip(p.get('city'), 80)}</city><background>{clip(p.get('background'), 1500)}</background></profile>",
+        '<cv_input>',
+        f"<target>{clip(data.get('target'), 200) or 'an internship'}</target>",
+        f"<experience>{to_str(data.get('experience'))[:4000]}</experience>",
+        f"<education>{to_str(data.get('education'))[:3000]}</education>",
+        f"<projects>{to_str(data.get('projects'))[:3000]}</projects>",
+        f"<skills>{to_str(data.get('skills'))[:1000]}</skills>",
+        f"<languages>{to_str(data.get('languages'))[:500]}</languages>",
+        '</cv_input>',
+    ])
+
+
+def _items(v, limit=12):
+    out = []
+    for it in (v if isinstance(v, list) else [])[:limit]:
+        if not isinstance(it, dict):
+            continue
+        item = {k: to_str(it.get(k)).strip()[:160] for k in ('title', 'org', 'period')}
+        item['points'] = [to_str(x).strip()[:240] for x in (it.get('points') or []) if to_str(x).strip()][:4] \
+            if isinstance(it.get('points'), list) else []
+        if item['title'] or item['org'] or item['points']:
+            out.append(item)
+    return out
+
+
+def _words(v, limit=30):
+    return [to_str(x).strip()[:60] for x in (v if isinstance(v, list) else []) if to_str(x).strip()][:limit]
+
+
+def normalize_cv(j):
+    """Keep only the shape the page knows how to show, whatever the model returned."""
+    j = j if isinstance(j, dict) else {}
+    out = {'summary': to_str(j.get('summary')).strip()[:600]}
+    for k in CV_SECTIONS:
+        out[k] = _items(j.get(k))
+    out['skills'] = _words(j.get('skills'))
+    out['languages'] = _words(j.get('languages'), 10)
+    return out
+
+
+def _blocks(text):
+    """Notes typed as blocks separated by a blank line: first line is the title, the rest are points.
+
+    A first line like "Developer — Acme (2025)" is split into title, organisation and period.
+    """
+    items = []
+    for block in re.split(r'\n\s*\n', to_str(text).strip()):
+        lines = [l.strip(' -•\t') for l in block.splitlines() if l.strip(' -•\t')]
+        if not lines:
+            continue
+        head, period = lines[0], ''
+        m = re.search(r'\(([^()]*\d[^()]*)\)\s*$', head)
+        if m:
+            period, head = m.group(1).strip(), head[:m.start()].strip()
+        parts = re.split(r'\s+[—–|@]\s+|\s+-\s+|\s+at\s+|\s+chez\s+', head, maxsplit=1)
+        title, org = (parts[0], parts[1]) if len(parts) == 2 else (head, '')
+        items.append({'title': title, 'org': org, 'period': period, 'points': lines[1:]})
+    return items
+
+
+def plain_cv(data):
+    """The CV without AI: the person's own notes, laid out as they typed them."""
+    split = lambda v: [x.strip() for x in re.split(r'[,\n;]', to_str(v)) if x.strip()]  # noqa: E731
+    return normalize_cv({
+        'summary': to_str(data.get('summary')).strip(),
+        'experience': _blocks(data.get('experience')),
+        'education': _blocks(data.get('education')),
+        'projects': _blocks(data.get('projects')),
+        'skills': split(data.get('skills')),
+        'languages': split(data.get('languages')),
+    })
+
+
+def generate_cv(profile, data, language, api_key):
+    out = generate(api_key, cv_system_prompt(language), [{'role': 'user', 'text': cv_user_prompt(profile, data)}],
+                   json_mode=True, max_tokens=2048, temperature=0.4)
+    text = out['text']
+    a, b = text.find('{'), text.rfind('}')
+    try:
+        j = json.loads(text[a:b + 1]) if a >= 0 and b > a else None
+    except ValueError:
+        j = None
+    if not isinstance(j, dict):
+        raise ApiError('Gemini did not return a CV in the expected shape. Try again.')
+    return {**normalize_cv(j), 'model': out['model']}

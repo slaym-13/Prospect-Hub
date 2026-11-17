@@ -114,6 +114,7 @@ def set_ai_key(email, plain):
             u['aiKey'] = encrypt(plain)
         else:
             u.pop('aiKey', None)
+        u.pop('aiError', None)   # a new key (or none) starts with a clean slate
         write_users(users)
 
 
@@ -124,6 +125,87 @@ def get_ai_key(email):
 
 def has_ai_key(email):
     return bool(get_ai_key(email))
+
+
+UNREADABLE_KEY = ('Your saved Gemini key can no longer be read (the server secret changed). '
+                  'Remove it in Settings and add it again.')
+
+
+def set_ai_error(email, message):
+    """Remember why this user's last AI call failed (None clears it). Writes only on change."""
+    with _users_lock:
+        users = read_users()
+        u = next((x for x in users if x['email'] == email), None)
+        if not u:
+            return
+        current = (u.get('aiError') or {}).get('message')
+        if current == message:
+            return
+        if message:
+            u['aiError'] = {'message': str(message)[:300], 'at': now_iso()}
+        else:
+            u.pop('aiError', None)
+        write_users(users)
+
+
+def ai_state(email):
+    """What the interface shows for AI: whether it can be used, and if not, why."""
+    u = get_user(email)
+    if not u or not u.get('aiKey'):
+        return {'ai': False, 'aiError': None}
+    if decrypt(u['aiKey']) is None:
+        return {'ai': False, 'aiError': UNREADABLE_KEY}
+    return {'ai': True, 'aiError': (u.get('aiError') or {}).get('message')}
+
+
+# ---------- profile: who the person is, used as the sender and on their CV ----------
+
+PROFILE_FIELDS = {'fullName': 120, 'phone': 40, 'headline': 160, 'city': 80, 'linkedin': 200,
+                  'background': 1500, 'period': 100, 'signature': 400, 'replyTo': 120}
+_PHONE = re.compile(r'\+?[0-9 ().\-]{8,24}')
+
+
+def clean_profile(raw):
+    raw = raw if isinstance(raw, dict) else {}
+    out = {}
+    for k, n in PROFILE_FIELDS.items():
+        v = raw.get(k)
+        out[k] = ('' if v is None else str(v)).strip()[:n]
+    return out
+
+
+def profile_problem(p):
+    """The first thing wrong with a profile, or None. Name, phone and headline are required."""
+    if len(p.get('fullName', '')) < 3 or ' ' not in p['fullName']:
+        return 'Enter your full name (first and last name).'
+    phone = p.get('phone', '')
+    if not _PHONE.fullmatch(phone) or sum(c.isdigit() for c in phone) < 8:
+        return 'Enter a valid phone number, for example 06 12 34 56 78 or +212 6 12 34 56 78.'
+    if len(p.get('headline', '')) < 3:
+        return 'Say in a few words who you are (for example "3rd-year computer science student").'
+    if p.get('replyTo') and not valid_email(p['replyTo'].lower()):
+        return 'The reply-to address does not look valid.'
+    return None
+
+
+def get_profile(email):
+    u = get_user(email)
+    return clean_profile((u or {}).get('profile'))
+
+
+def set_profile(email, profile):
+    with _users_lock:
+        users = read_users()
+        u = next((x for x in users if x['email'] == email), None)
+        if not u:
+            raise ValueError('No such account.')
+        u['profile'] = clean_profile(profile)
+        write_users(users)
+        return u['profile']
+
+
+def profile_complete(email):
+    return profile_problem(get_profile(email)) is None
 
 
 # ---------- passwords ----------
@@ -144,7 +226,7 @@ def _check(password, hashed):
         return False
 
 
-def create_user(email, password, role='user', allow_short_password=False):
+def create_user(email, password, role='user', allow_short_password=False, profile=None):
     email = str(email or '').strip().lower()
     if not valid_email(email):
         raise ValueError('Enter a valid email address.')
@@ -153,7 +235,10 @@ def create_user(email, password, role='user', allow_short_password=False):
     hashed = hash_password(password)
     with _users_lock:
         users = [u for u in read_users() if u['email'] != email]
-        users.append({'email': email, 'hash': hashed, 'role': 'admin' if role == 'admin' else 'user', 'createdAt': now_iso()})
+        user = {'email': email, 'hash': hashed, 'role': 'admin' if role == 'admin' else 'user', 'createdAt': now_iso()}
+        if profile:
+            user['profile'] = clean_profile(profile)
+        users.append(user)
         write_users(users)
 
 
@@ -163,6 +248,8 @@ def list_users():
     """Everything the admin screen may see. Never the hash, never the AI key."""
     return [{
         'email': u['email'],
+        'fullName': (u.get('profile') or {}).get('fullName', ''),
+        'phone': (u.get('profile') or {}).get('phone', ''),
         'role': 'admin' if u.get('role') == 'admin' else 'user',
         'createdAt': u.get('createdAt'),
         'hasAiKey': bool(u.get('aiKey')),

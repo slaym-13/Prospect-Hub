@@ -51,9 +51,19 @@ export function AiKeyCard() {
     <Card>
       <CardHeader
         title="AI"
-        subtitle="Your own Google Gemini key. It writes the email drafts and answers your questions in Ask."
-        action={<Pill tone={config.ai ? 'good' : 'warn'}>{config.ai ? `connected · ${config.model}` : 'not set'}</Pill>}
+        subtitle="Your own Google Gemini key. It writes your email drafts and your CV, and answers your questions in Ask."
+        action={
+          <Pill tone={config.aiError ? 'bad' : config.ai ? 'good' : 'warn'}>
+            {config.aiError ? 'not working' : config.ai ? `connected · ${config.model}` : 'not set'}
+          </Pill>
+        }
       />
+
+      {config.aiError && (
+        <Message tone="bad" className="mb-3">
+          {config.ai ? `Your last AI request failed: ${config.aiError}` : config.aiError}
+        </Message>
+      )}
 
       {error && <Message tone="bad" className="mb-3">{error}</Message>}
 

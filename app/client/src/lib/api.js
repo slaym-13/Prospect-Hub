@@ -30,10 +30,12 @@ const get = (url) => request('GET', url);
 export const api = {
   session: () => get('/api/session'),
   login: (email, password) => request('POST', '/api/login', { email, password }),
-  signup: ({ email, password, confirm }) => request('POST', '/api/signup', { email, password, confirm }),
+  signup: (form) => request('POST', '/api/signup', form),
   logout: () => request('POST', '/api/logout', {}),
 
   config: () => get('/api/config'),
+  profile: () => get('/api/profile'),
+  saveProfile: (p) => request('PUT', '/api/profile', p),
   saveAiKey: (key) => request('PUT', '/api/ai-key', { key }),
   removeAiKey: () => request('DELETE', '/api/ai-key'),
 
@@ -54,6 +56,12 @@ export const api = {
   removeLog: (id, index) => request('DELETE', `/api/leads/${encodeURIComponent(id)}/log/${index}`),
 
   outbox: () => get('/api/outbox'),
+
+  myMessages: () => get('/api/messages'),
+  sendMessage: (m) => request('POST', '/api/messages', m),
+
+  cv: () => get('/api/cv'),
+  buildCv: (payload) => request('POST', '/api/cv', payload),
   currentJob: () => get('/api/jobs/current'),
   startJob: (type, scope) => request('POST', '/api/jobs/start', { type, scope }),
   cancelJob: () => request('POST', '/api/jobs/cancel', {}),
@@ -68,5 +76,8 @@ export const api = {
   adminUpdateLead: (id, patch) => request('PATCH', `/api/admin/leads/${encodeURIComponent(id)}`, patch),
   adminDeleteLead: (id) => request('DELETE', `/api/admin/leads/${encodeURIComponent(id)}`),
   adminReset: () => request('POST', '/api/admin/reset', { confirm: 'reset' }),
-  adminSetSignup: (enabled) => request('PATCH', '/api/admin/signup', { enabled })
+  adminSetSignup: (enabled) => request('PATCH', '/api/admin/signup', { enabled }),
+  adminMessages: () => get('/api/admin/messages'),
+  adminUpdateMessage: (id, patch) => request('PATCH', `/api/admin/messages/${encodeURIComponent(id)}`, patch),
+  adminDeleteMessage: (id) => request('DELETE', `/api/admin/messages/${encodeURIComponent(id)}`)
 };

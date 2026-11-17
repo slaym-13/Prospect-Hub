@@ -60,6 +60,33 @@ def _rate(hits, k, limit, window_s):
     return False
 
 
+def messages():
+    """Notes users have sent to the administrators, oldest first."""
+    return store.get().setdefault('messages', [])
+
+
+def sender_settings(user):
+    """The settings as one user's emails see them: their own profile is the sender.
+
+    Fields the person left empty fall back to the shared settings, so an install set up
+    before profiles existed keeps writing the same emails.
+    """
+    s = store.get()['settings']
+    p = auth.get_profile(user)
+    shared = s.get('sender') or {}
+    signature = p['signature'] or s.get('signature') or '\n'.join(
+        x for x in [p['fullName'], p['headline'], p['phone'], user] if x)
+    return {
+        **s,
+        'sender': {'name': p['fullName'] or shared.get('name', ''), 'role': p['headline'] or shared.get('role', ''),
+                   'background': p['background'] or shared.get('background', '')},
+        'period': p['period'] or s.get('period', ''),
+        'signature': signature,
+        # Replies go to the person who wrote, not to the shared sending account.
+        'replyTo': p['replyTo'] or user,
+    }
+
+
 def create_api():
     r = Blueprint('api', __name__, url_prefix='/api')
     db = store.get
@@ -125,10 +152,15 @@ def create_api():
             return err(400, f'The password needs at least {auth.MIN_PASSWORD} characters.')
         # Say the same thing whether or not the address is taken, so this cannot be
         # used to find out who already has an account.
+        # Everything the outreach emails and the CV need about the sender, asked once here.
+        profile = auth.clean_profile(b)
+        problem = auth.profile_problem(profile)
+        if problem:
+            return err(400, problem)
         if auth.get_user(email):
             return err(409, 'That address cannot be used. Try another, or sign in.')
         try:
-            auth.create_user(email, password)
+            auth.create_user(email, password, profile=profile)
         except ValueError as e:
             return err(400, str(e))
         hits.append(now)
@@ -157,9 +189,29 @@ def create_api():
     # ----- everything below needs a session (checked in app.py) -----
     @r.get('/config')
     def config():
-        return jsonify({'user': g.user, 'isAdmin': auth.is_admin(g.user), 'ai': auth.has_ai_key(g.user),
-                        'model': ai.MODEL(), 'smtp': mailer.mode(),
-                        'places': bool(os.environ.get('GOOGLE_PLACES_API_KEY')), 'statuses': store.STATUSES})
+        admin = auth.is_admin(g.user)
+        profile = auth.get_profile(g.user)
+        out = {'user': g.user, 'name': profile['fullName'], 'isAdmin': admin, **auth.ai_state(g.user),
+               'profileComplete': auth.profile_problem(profile) is None,
+               'model': ai.MODEL(), 'smtp': mailer.mode(),
+               'places': bool(os.environ.get('GOOGLE_PLACES_API_KEY')), 'statuses': store.STATUSES}
+        if admin:
+            out['openMessages'] = sum(1 for m in messages() if m.get('status') != 'resolved')
+        return jsonify(out)
+
+    # ----- the signed-in person's profile: the sender of their emails, the header of their CV -----
+    @r.get('/profile')
+    def get_profile():
+        return jsonify({**auth.get_profile(g.user), 'email': g.user})
+
+    @r.put('/profile')
+    def put_profile():
+        profile = auth.clean_profile(body())
+        problem = auth.profile_problem(profile)
+        if problem:
+            return err(400, problem)
+        profile['replyTo'] = profile['replyTo'].lower()
+        return jsonify({**auth.set_profile(g.user, profile), 'email': g.user})
 
     # ----- the signed-in person's own Gemini key -----
     @r.put('/ai-key')
@@ -205,9 +257,13 @@ def create_api():
         if _rate(ask_hits, g.user, 20, 60):
             return err(429, 'Slow down: 20 questions per minute at most.')
         try:
-            return jsonify(assistant.ask(g.user, body().get('message'), key))
+            out = assistant.ask(g.user, body().get('message'), key)
         except ApiError as e:
+            if not e.status:   # Gemini's failure, not a bad question: remember it for the Ask button
+                auth.set_ai_error(g.user, str(e))
             return err(e.status or 502, str(e))
+        auth.set_ai_error(g.user, None)
+        return jsonify(out)
 
     @r.get('/settings')
     def get_settings():
@@ -381,7 +437,7 @@ def create_api():
         if _rate(draft_hits, g.user, 20, 60):
             return err(429, 'Slow down: 20 drafts per minute at most.')
         b = body()
-        ctx = {'lead': l, 'settings': db()['settings'], 'goal': 'pitch' if b.get('goal') == 'pitch' else 'internship',
+        ctx = {'lead': l, 'settings': sender_settings(g.user), 'goal': 'pitch' if b.get('goal') == 'pitch' else 'internship',
                'language': 'en' if b.get('language') == 'en' else 'fr', 'tone': clip(b.get('tone'), 30),
                'extra': clip(b.get('extra'), 300)}
         out, ai_error = None, None
@@ -389,8 +445,12 @@ def create_api():
         if key:
             try:
                 out = ai.draft_email(ctx, key)
+                auth.set_ai_error(g.user, None)
             except Exception as e:
                 ai_error = str(e)
+                auth.set_ai_error(g.user, ai_error)
+        elif auth.ai_state(g.user)['aiError']:
+            ai_error = auth.ai_state(g.user)['aiError']
         if not out:
             out = {**ai.template_draft(ctx), 'ai': False}
         l['draft'] = {**out, 'at': now_iso(), 'goal': ctx['goal'], 'language': ctx['language']}
@@ -437,11 +497,13 @@ def create_api():
             last_at = parse_iso(last_ok['at'])
             if last_at and (datetime.now(last_at.tzinfo) - last_at).total_seconds() < 14 * DAY_S:
                 return err(409, f"You already emailed this address on {last_ok['at'][:10]}.", code='RECENT', last=last_ok['at'])
-        signature = settings['signature'].strip() + '\n\n' if settings.get('signature') else ''
+        sender = sender_settings(g.user)
+        signature = sender['signature'].strip() + '\n\n' if sender.get('signature') else ''
         text = text_body + '\n\n' + signature + opt_out
-        entry = {'id': 's' + base36(now_ms()), 'at': now_iso(), 'to': l['email'], 'subject': subject, 'body': text, 'language': lang}
+        entry = {'id': 's' + base36(now_ms()), 'at': now_iso(), 'to': l['email'], 'subject': subject, 'body': text,
+                 'language': lang, 'by': g.user}
         try:
-            out = mailer.send(l['email'], subject, text, settings.get('replyTo'))
+            out = mailer.send(l['email'], subject, text, sender.get('replyTo'))
             entry.update(ok=True, mode=out['mode'], messageId=out['messageId'])
             if l.get('status') == 'new':
                 l['status'] = 'contacted'
@@ -460,6 +522,85 @@ def create_api():
                 for l in list(db()['leads'].values()) for s in (l.get('sent') or [])]
         rows.sort(key=lambda x: x.get('at') or '', reverse=True)
         return jsonify(rows[:500])
+
+    # ----- contact the administrators -----
+    message_hits = {}
+
+    def own(m):
+        return {k: m.get(k) for k in ('id', 'subject', 'body', 'at', 'status', 'reply', 'repliedAt')}
+
+    @r.get('/messages')
+    def my_messages():
+        mine = [own(m) for m in messages() if m.get('from') == g.user]
+        return jsonify(list(reversed(mine)))
+
+    @r.post('/messages')
+    def send_message():
+        b = body()
+        subject = re.sub(r'[\r\n]+', ' ', clip(b.get('subject'), 120)).strip()
+        text_body = clip(b.get('body'), 2000).strip()
+        if len(subject) < 3:
+            return err(400, 'Give your message a subject.')
+        if len(text_body) < 10:
+            return err(400, 'Write a little more so an administrator can help.')
+        if _rate(message_hits, g.user, 10, 3600):
+            return err(429, 'You have sent 10 messages in the last hour. Wait for a reply.')
+        p = auth.get_profile(g.user)
+        m = {'id': 'm' + base36(now_ms()), 'from': g.user, 'name': p['fullName'], 'phone': p['phone'],
+             'subject': subject, 'body': text_body, 'at': now_iso(), 'status': 'open', 'reply': '', 'repliedAt': None}
+        messages().append(m)
+        store.save()
+        return jsonify(own(m)), 201
+
+    # ----- CV -----
+    def cv_record():
+        return store.get().setdefault('cvs', {}).setdefault(g.user, {'input': {}, 'cv': None, 'at': None})
+
+    CV_INPUT = {'target': 200, 'summary': 600, 'experience': 4000, 'education': 3000, 'projects': 3000,
+                'skills': 1000, 'languages': 500}
+
+    def cv_input(raw):
+        raw = raw if isinstance(raw, dict) else {}
+        return {k: clip(raw.get(k), n) for k, n in CV_INPUT.items()}
+
+    def cv_payload(rec):
+        p = auth.get_profile(g.user)
+        contact = {'email': g.user, 'phone': p['phone'], 'city': p['city'], 'linkedin': p['linkedin']}
+        return {**rec, 'header': {'name': p['fullName'], 'headline': p['headline'], **contact}}
+
+    @r.get('/cv')
+    def get_cv():
+        return jsonify(cv_payload(cv_record()))
+
+    @r.post('/cv')
+    def build_cv():
+        b = body()
+        rec = cv_record()
+        rec['input'] = cv_input(b.get('input'))
+        language = 'en' if b.get('language') == 'en' else 'fr'
+        rec['language'] = language
+        use_ai = b.get('ai') is not False
+        ai_error = None
+        if use_ai:
+            key = auth.get_ai_key(g.user)
+            if not key:
+                return err(400, auth.ai_state(g.user)['aiError'] or 'Add your Gemini API key in Settings to write the CV with AI.',
+                           code='NO_KEY')
+            if _rate(draft_hits, g.user, 20, 60):
+                return err(429, 'Slow down: 20 AI requests per minute at most.')
+            try:
+                cv = {**ai.generate_cv(auth.get_profile(g.user), rec['input'], language, key), 'ai': True}
+                auth.set_ai_error(g.user, None)
+            except ApiError as e:
+                ai_error = str(e)
+                if 'expected shape' not in ai_error:
+                    auth.set_ai_error(g.user, ai_error)
+                return err(502, ai_error)
+        else:
+            cv = {**ai.plain_cv(rec['input']), 'ai': False}
+        rec['cv'], rec['at'] = cv, now_iso()
+        store.save()
+        return jsonify(cv_payload(rec))
 
     # ----- data out -----
     @r.get('/export.csv')

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useApp } from '../../store/AppContext';
 import { useTheme } from '../../hooks/useTheme';
@@ -7,6 +7,8 @@ import { Button } from '../ui/Button';
 import { Toasts } from '../ui/Feedback';
 import { JobBar } from './JobBar';
 import { AssistantPanel } from '../../features/assistant/AssistantPanel';
+import { ContactAdminPanel } from '../../features/messages/ContactAdminPanel';
+import { Message } from '../ui/Feedback';
 import { cn } from '../../lib/cn';
 
 const TABS = [
@@ -15,6 +17,7 @@ const TABS = [
   ['/companies', 'Companies'],
   ['/pipeline', 'Pipeline'],
   ['/outbox', 'Outbox'],
+  ['/cv', 'CV'],
   ['/settings', 'Settings'],
   ['/admin', 'Admin', 'admin']   // only shown to administrators
 ];
@@ -33,6 +36,14 @@ export function AppLayout() {
   const { theme, cycleTheme } = useTheme();
   const navigate = useNavigate();
   const [askOpen, setAskOpen] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
+
+  // Ask is only usable with a working key. Otherwise it is grey, and hovering says why.
+  const askReason = !config?.ai
+    ? config?.aiError || 'No API key yet. Add your Gemini key in Settings.'
+    : config.aiError
+      ? `The last AI request failed: ${config.aiError}`
+      : '';
 
   const dueCount = leads.filter((l) => l.nextStep && l.nextStep <= new Date().toISOString().slice(0, 10)
     && !['won', 'lost', 'optout'].includes(l.status)).length;
@@ -68,15 +79,40 @@ export function AppLayout() {
                 {label === 'Today' && dueCount > 0 && (
                   <span className="rounded-full bg-warn-soft px-1.5 text-[11px] font-medium text-warn">{dueCount}</span>
                 )}
+                {label === 'Admin' && config?.openMessages > 0 && (
+                  <span
+                    className="rounded-full bg-warn-soft px-1.5 text-[11px] font-medium text-warn"
+                    title={`${config.openMessages} message(s) waiting for an answer`}
+                  >
+                    {config.openMessages}
+                  </span>
+                )}
               </NavLink>
             ))}
           </nav>
 
           <div className="ml-auto flex items-center gap-2 text-[13px] text-muted">
-            <span className="hidden sm:inline">{config?.user}</span>
-            <Button size="sm" variant="primary" onClick={() => setAskOpen(true)} title="Ask about the app">
+            <span className="hidden sm:inline" title={config?.user}>{config?.name || config?.user}</span>
+            {!config?.isAdmin && (
+              <Button size="sm" onClick={() => setContactOpen(true)} title="Write to an administrator">
+                Contact admin
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant={askReason ? 'default' : 'primary'}
+              onClick={() => setAskOpen(true)}
+              title={askReason || 'Ask about the app'}
+              aria-describedby={askReason ? 'ask-reason' : undefined}
+              className={askReason ? 'border-line bg-surface-2 text-muted hover:border-line hover:text-muted' : undefined}
+            >
               Ask
             </Button>
+            {askReason && (
+              <span id="ask-reason" className="sr-only">
+                {askReason}
+              </span>
+            )}
             <Button size="sm" onClick={cycleTheme} title={`Theme: ${theme}`}>
               {theme === 'system' ? 'Auto' : theme === 'dark' ? 'Dark' : 'Light'}
             </Button>
@@ -89,10 +125,17 @@ export function AppLayout() {
 
       <main className="mx-auto grid max-w-[1240px] grid-cols-[minmax(0,1fr)] gap-4 px-4 pb-16 pt-5">
         <JobBar />
+        {config && !config.profileComplete && (
+          <Message>
+            Your profile is incomplete: your emails and CV need your full name, phone number and who you are.{' '}
+            <Link to="/settings">Complete it in Settings</Link>.
+          </Message>
+        )}
         <Outlet />
       </main>
 
       {askOpen && <AssistantPanel onClose={() => setAskOpen(false)} />}
+      {contactOpen && <ContactAdminPanel onClose={() => setContactOpen(false)} />}
       <Toasts items={toasts} />
     </>
   );

@@ -16,6 +16,7 @@ import Pipeline from './pages/Pipeline';
 import Outbox from './pages/Outbox';
 import Settings from './pages/Settings';
 import Admin from './pages/Admin';
+import Cv from './pages/Cv';
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
@@ -37,6 +38,7 @@ createRoot(document.getElementById('root')).render(
           <Route path="companies" element={<Companies />} />
           <Route path="pipeline" element={<Pipeline />} />
           <Route path="outbox" element={<Outbox />} />
+          <Route path="cv" element={<Cv />} />
           <Route path="settings" element={<Settings />} />
           <Route path="admin" element={<Admin />} />
         </Route>

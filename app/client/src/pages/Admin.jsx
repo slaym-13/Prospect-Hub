@@ -6,6 +6,7 @@ import { Message, Spinner } from '../components/ui/Feedback';
 import { KpiRow, Kpi } from '../components/ui/Kpi';
 import { UsersCard } from '../features/admin/UsersCard';
 import { DataCard } from '../features/admin/DataCard';
+import { MessagesCard } from '../features/admin/MessagesCard';
 import { nf } from '../lib/format';
 
 /** Administration. The server refuses these routes to anyone else; this only hides them. */
@@ -39,9 +40,11 @@ export default function Admin() {
           <Kpi label="Contacted" value={nf(stats.contacted)} detail={`${nf(stats.sent)} emails sent`} />
           <Kpi label="Contacts logged" value={nf(stats.logged)} detail="calls, visits, messages" />
           <Kpi label="Accounts" value={nf(stats.users)} detail={`${nf(stats.admins)} administrator(s)`} />
+          <Kpi label="Messages waiting" value={nf(stats.openMessages || 0)} detail="from Contact admin" />
         </KpiRow>
       )}
 
+      <MessagesCard />
       <UsersCard />
       <DataCard />
     </>

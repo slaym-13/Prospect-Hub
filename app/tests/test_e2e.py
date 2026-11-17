@@ -49,9 +49,17 @@ class MockGemini(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get('content-length') or 0)))
         AI['last'] = {'headers': {k.lower(): v for k, v in self.headers.items()}, 'url': self.path, 'body': body}
-        text = ('The fit score runs from 0 to 100 and is built from four weighted factors.'
-                if 'app_guide' in json.dumps(body) else
-                '{"subject":"Stage chez Acme","body":"Bonjour, je souhaite postuler pour un stage chez Acme Digital. Merci de votre temps."}')
+        if self.headers.get('x-goog-api-key') == 'AIza-quota-exhausted-test-key':
+            return self._send(429, {'error': {'message': 'Resource has been exhausted (e.g. check quota).'}})
+        sent = json.dumps(body)
+        if '<cv_input>' in sent:
+            text = json.dumps({'summary': 'Étudiant en informatique.', 'experience': [
+                {'title': 'Stagiaire développeur', 'org': 'Acme', 'period': '2025', 'points': ['A construit une API']}],
+                'education': [], 'projects': 'not a list', 'skills': ['Python', 'React'], 'languages': ['Français']})
+        elif 'app_guide' in sent:
+            text = 'The fit score runs from 0 to 100 and is built from four weighted factors.'
+        else:
+            text = '{"subject":"Stage chez Acme","body":"Bonjour, je souhaite postuler pour un stage chez Acme Digital. Merci de votre temps."}'
         self._send(200, {'modelVersion': 'gemini-2.5-flash', 'candidates': [{'content': {'parts': [{'text': text}]}}]})
 
 
@@ -284,18 +292,26 @@ def test_sign_up_confirmation_validation_and_admin_switch(api):
 
     def signup(b):
         return call('POST', '/api/signup', b)
-    ok = {'email': 'nouveau@example.com', 'password': 'un-mot-de-passe-long', 'confirm': 'un-mot-de-passe-long'}
+    profile = {'fullName': 'Salma Benali', 'phone': '06 12 34 56 78', 'headline': 'Étudiante en 3e année d’informatique'}
+    ok = {'email': 'nouveau@example.com', 'password': 'un-mot-de-passe-long', 'confirm': 'un-mot-de-passe-long', **profile}
 
     # the two passwords must match, and the rules still apply
     status, mismatch = signup({**ok, 'confirm': 'autre-chose-entierement'})
     assert status == 400 and 'do not match' in mismatch['error']
     assert signup({**ok, 'password': 'court', 'confirm': 'court'})[0] == 400
     assert signup({**ok, 'email': 'pas-une-adresse'})[0] == 400
+    # the profile is part of registration: full name, phone and who you are
+    status, no_name = signup({**ok, 'fullName': 'Salma'})
+    assert status == 400 and 'full name' in no_name['error']
+    assert 'phone' in signup({**ok, 'phone': '12'})[1]['error']
+    assert signup({**ok, 'headline': ''})[0] == 400
 
     # a good one signs the person straight in, as an ordinary user
     assert signup(ok)[0] == 201
     assert call('GET', '/api/session')[1]['user'] == 'nouveau@example.com'
     assert call('GET', '/api/config')[1]['isAdmin'] is False
+    assert call('GET', '/api/config')[1]['profileComplete'] is True
+    assert call('GET', '/api/profile')[1]['fullName'] == 'Salma Benali'
 
     # the address is taken, and the refusal does not confirm that it exists
     call('POST', '/api/logout', {})
@@ -310,7 +326,7 @@ def test_sign_up_confirmation_validation_and_admin_switch(api):
     assert call('PATCH', '/api/admin/signup', {'enabled': False})[1]['allowSignup'] is False
     api.cookie = ''
     assert call('GET', '/api/session')[1]['allowSignup'] is False
-    assert signup({'email': 'refuse@example.com', 'password': 'un-mot-de-passe-long', 'confirm': 'un-mot-de-passe-long'})[0] == 403
+    assert signup({**ok, 'email': 'refuse@example.com'})[0] == 403
 
     api.cookie = admin
     call('PATCH', '/api/admin/signup', {'enabled': True})
@@ -380,3 +396,120 @@ def test_settings_keep_the_scoring_weights_and_tiers(api):
     assert saved['scoring']['perDay'] == 8
     assert saved['scoring']['tiers']['Hôtel'] == 'A'
     assert 'Spam' not in saved['scoring']['tiers'], 'an unknown tier letter is dropped'
+
+
+KARIM = {'email': 'karim@example.com', 'password': 'a-long-enough-password'}
+
+
+def as_karim(api):
+    api.cookie = ''
+    api.call('POST', '/api/login', KARIM)
+
+
+def test_each_user_is_the_sender_of_their_own_emails(api):
+    call = api.call
+    admin = api.cookie
+    call('POST', '/api/admin/users', KARIM)
+    as_karim(api)
+    # an account made by an administrator has no profile yet
+    assert call('GET', '/api/config')[1]['profileComplete'] is False
+    assert call('PUT', '/api/profile', {'fullName': 'Karim', 'phone': '0612345678', 'headline': 'Dev'})[0] == 400
+    saved = call('PUT', '/api/profile', {'fullName': 'Karim Alaoui', 'phone': '+212 6 11 22 33 44', 'headline': 'Développeur junior',
+                                         'background': 'Projets Flask et React', 'replyTo': 'Karim.Perso@Example.com'})[1]
+    assert saved['replyTo'] == 'karim.perso@example.com'
+
+    call('PUT', '/api/ai-key', {'key': 'AIza-a-perfectly-fine-test-key'})
+    call('POST', '/api/leads/P2/draft', {'goal': 'internship', 'language': 'fr'})
+    prompt = json.dumps(AI['last']['body'], ensure_ascii=False)
+    assert 'Karim Alaoui' in prompt and 'Développeur junior' in prompt, 'the draft is written as this user'
+
+    call('PATCH', '/api/leads/P2', {'email': 'contact@empty.test'})
+    call('PUT', '/api/settings', {'dailyCap': 50})
+    status, sent = call('POST', '/api/leads/P2/send', {'subject': 'Candidature', 'body': 'Bonjour, je vous écris pour un stage.',
+                                                       'requestId': 'karim-1'})
+    assert status == 200
+    assert 'Karim Alaoui' in sent['entry']['body'] and '+212 6 11 22 33 44' in sent['entry']['body'], 'signature from the profile'
+    api.cookie = admin
+
+
+def test_ai_errors_are_remembered_for_the_ask_button(api):
+    call = api.call
+    admin = api.cookie
+    as_karim(api)
+    assert call('GET', '/api/config')[1]['aiError'] is None
+    # Google accepts the key, then refuses work with it
+    call('PUT', '/api/ai-key', {'key': 'AIza-quota-exhausted-test-key'})
+    assert call('POST', '/api/assistant', {'message': 'Hello?'})[0] == 502
+    cfg = call('GET', '/api/config')[1]
+    assert cfg['ai'] is True and 'rate limit' in cfg['aiError']
+    # a draft still falls back to the template, and says why
+    d = call('POST', '/api/leads/P2/draft', {'goal': 'internship'})[1]
+    assert d['ai'] is False and 'rate limit' in d['aiError']
+    # a working key clears it
+    call('PUT', '/api/ai-key', {'key': 'AIza-a-perfectly-fine-test-key'})
+    assert call('GET', '/api/config')[1]['aiError'] is None
+    api.cookie = admin
+
+
+def test_users_can_write_to_the_administrators(api):
+    call = api.call
+    admin = api.cookie
+    as_karim(api)
+    assert call('POST', '/api/messages', {'subject': 'Hi', 'body': 'short'})[0] == 400
+    status, m = call('POST', '/api/messages', {'subject': 'Ajouter une entreprise', 'body': 'Pouvez-vous ajouter la société Atlas Web ?'})
+    assert status == 201 and m['status'] == 'open'
+    assert call('GET', '/api/admin/messages')[0] == 403, 'only administrators read the inbox'
+
+    api.cookie = admin
+    assert call('GET', '/api/config')[1]['openMessages'] == 1
+    inbox = call('GET', '/api/admin/messages')[1]
+    assert inbox[0]['from'] == 'karim@example.com' and inbox[0]['name'] == 'Karim Alaoui'
+    replied = call('PATCH', f"/api/admin/messages/{m['id']}", {'reply': "C'est fait."})[1]
+    assert replied['status'] == 'resolved'
+    assert call('GET', '/api/config')[1]['openMessages'] == 0
+
+    as_karim(api)
+    mine = call('GET', '/api/messages')[1]
+    assert mine[0]['reply'] == "C'est fait." and 'from' not in mine[0]
+    api.cookie = admin
+    assert call('DELETE', f"/api/admin/messages/{m['id']}")[0] == 200
+
+
+def test_cv_with_and_without_ai(api):
+    call = api.call
+    admin = api.cookie
+    as_karim(api)
+    notes = {'target': 'stage en développement web',
+             'experience': 'Stagiaire développeur - Acme (2025)\nA construit une API Flask\n\nVendeur chez Souk Shop (2023)\nConseil client',
+             'education': 'Licence informatique - FST Marrakech (2022-2025)', 'skills': 'Python, React\nSQL',
+             'languages': 'Français, Anglais'}
+
+    plain = call('POST', '/api/cv', {'input': notes, 'ai': False})[1]
+    cv = plain['cv']
+    assert cv['ai'] is False
+    assert cv['experience'][0] == {'title': 'Stagiaire développeur', 'org': 'Acme', 'period': '2025',
+                                   'points': ['A construit une API Flask']}
+    assert cv['experience'][1]['org'] == 'Souk Shop'
+    assert cv['skills'] == ['Python', 'React', 'SQL']
+    assert plain['header']['name'] == 'Karim Alaoui' and plain['header']['email'] == 'karim@example.com'
+
+    status, made = call('POST', '/api/cv', {'input': notes, 'language': 'fr'})
+    assert status == 200 and made['cv']['ai'] is True
+    assert made['cv']['projects'] == [], 'a malformed section from the model is dropped, not shown'
+    assert '<cv_input>' in json.dumps(AI['last']['body']), 'the notes are sent to Gemini'
+    # contact details come from the profile, never from the model
+    assert made['header']['phone'] == '+212 6 11 22 33 44'
+    assert call('GET', '/api/cv')[1]['input']['target'] == 'stage en développement web'
+
+    call('DELETE', '/api/ai-key')
+    status, no_key = call('POST', '/api/cv', {'input': notes})
+    assert status == 400 and no_key['code'] == 'NO_KEY'
+    api.cookie = admin
+
+
+def test_a_saved_key_that_can_no_longer_be_read_is_reported(api):
+    from lib import auth
+    users = auth.read_users()
+    next(u for u in users if u['email'] == 'karim@example.com')['aiKey'] = 'not.a.real-blob'
+    auth.write_users(users)
+    assert auth.ai_state('karim@example.com') == {'ai': False, 'aiError': auth.UNREADABLE_KEY}

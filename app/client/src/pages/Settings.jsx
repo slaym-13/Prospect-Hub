@@ -5,10 +5,11 @@ import { Button } from '../components/ui/Button';
 import { Field, Input, Select, Textarea } from '../components/ui/Field';
 import { Message, Spinner } from '../components/ui/Feedback';
 import { AiKeyCard } from '../features/settings/AiKeyCard';
+import { ProfileCard } from '../features/settings/ProfileCard';
 import { ScoringCard } from '../features/settings/ScoringCard';
 import { TierCard } from '../features/settings/TierCard';
 
-/** Sender identity, sending limits and the scoring weights, all saved to the server. */
+/** Your profile and AI key (yours alone), then the shared outreach rules and scoring. */
 export default function Settings() {
   const { settings, saveSettings, loading, error } = useApp();
   const [form, setForm] = useState(null);
@@ -22,7 +23,6 @@ export default function Settings() {
   if (error) return <Message tone="bad">{error}</Message>;
 
   const edit = (patch) => setForm({ ...state, ...patch });
-  const editSender = (patch) => edit({ sender: { ...state.sender, ...patch } });
   const editScoring = (patch) => edit({ scoring: { ...state.scoring, ...patch } });
 
   async function onSubmit(e) {
@@ -43,24 +43,16 @@ export default function Settings() {
 
   return (
     <>
+      <ProfileCard />
       <AiKeyCard />
 
       <form onSubmit={onSubmit} className="grid gap-4">
         <Card>
           <CardHeader
-            title="Sender & outreach"
-            subtitle="Used by the AI and added to every email. The opt-out line is always appended."
+            title="Outreach rules"
+            subtitle="Shared by everyone on this instance. The opt-out line is always appended to every email."
           />
           <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]">
-            <Field label="Your name">
-              <Input value={state.sender.name} onChange={(e) => editSender({ name: e.target.value })} />
-            </Field>
-            <Field label='Who you are (e.g. "3rd-year engineering student, ENSA Marrakech")'>
-              <Input value={state.sender.role} onChange={(e) => editSender({ role: e.target.value })} />
-            </Field>
-            <Field label="Short background the AI may use (skills, projects)" className="col-span-full">
-              <Textarea rows={4} value={state.sender.background} onChange={(e) => editSender({ background: e.target.value })} />
-            </Field>
 
             <Field label="Default goal">
               <Select value={state.goal} onChange={(e) => edit({ goal: e.target.value })}>
@@ -73,16 +65,6 @@ export default function Settings() {
                 <option value="fr">Français</option>
                 <option value="en">English</option>
               </Select>
-            </Field>
-            <Field label='Period / availability (e.g. "July–August 2027")'>
-              <Input value={state.period} onChange={(e) => edit({ period: e.target.value })} />
-            </Field>
-            <Field label="Reply-to address">
-              <Input type="email" value={state.replyTo} onChange={(e) => edit({ replyTo: e.target.value })} />
-            </Field>
-
-            <Field label="Signature" className="col-span-full">
-              <Textarea rows={3} value={state.signature} onChange={(e) => edit({ signature: e.target.value })} />
             </Field>
             <Field label="Opt-out line (Français)" className="col-span-full">
               <Textarea

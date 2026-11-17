@@ -2,16 +2,23 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Button } from '../components/ui/Button';
-import { Field, Input } from '../components/ui/Field';
+import { Field, Input, Textarea } from '../components/ui/Field';
 import { Message } from '../components/ui/Feedback';
 import { AuthShell } from '../features/auth/AuthShell';
 
 const MIN_PASSWORD = 10;
+const PHONE = /^\+?[0-9 ().-]{8,24}$/;
+const digits = (s) => (s.match(/\d/g) || []).length;
+
+const BLANK = {
+  fullName: '', email: '', phone: '', headline: '', city: '', linkedin: '', background: '',
+  password: '', confirm: ''
+};
 
 /** Create your own account. The server checks everything again; this is for the person. */
 export default function Signup() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ email: '', password: '', confirm: '' });
+  const [form, setForm] = useState(BLANK);
   const [open, setOpen] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -30,7 +37,15 @@ export default function Signup() {
 
   const tooShort = form.password.length > 0 && form.password.length < MIN_PASSWORD;
   const mismatch = form.confirm.length > 0 && form.password !== form.confirm;
-  const ready = form.email && form.password.length >= MIN_PASSWORD && form.password === form.confirm;
+  const nameBad = form.fullName.length > 0 && !/\S+\s+\S+/.test(form.fullName.trim());
+  const phoneBad = form.phone.length > 0 && (!PHONE.test(form.phone.trim()) || digits(form.phone) < 8);
+  const ready =
+    /\S+\s+\S+/.test(form.fullName.trim()) &&
+    form.email &&
+    PHONE.test(form.phone.trim()) && digits(form.phone) >= 8 &&
+    form.headline.trim().length >= 3 &&
+    form.password.length >= MIN_PASSWORD &&
+    form.password === form.confirm;
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -61,7 +76,8 @@ export default function Signup() {
   return (
     <AuthShell
       title="Create your account"
-      subtitle="Your own sign-in for Prospect Hub."
+      subtitle="Your details sign every email you send and head your CV. You can change them later in Settings."
+      wide
       footer={
         <>
           Already have an account? <Link to="/login">Sign in</Link>
@@ -69,11 +85,37 @@ export default function Signup() {
       }
     >
       <form className="grid gap-3" onSubmit={onSubmit} noValidate>
-        <Field label="Email">
-          <Input type="email" autoComplete="username" required autoFocus value={form.email} onChange={set('email')} />
-        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Full name *" invalid={nameBad} hint={nameBad ? 'First and last name' : undefined}>
+            <Input autoComplete="name" required autoFocus value={form.fullName} onChange={set('fullName')} />
+          </Field>
+          <Field label="Phone number *" invalid={phoneBad} hint={phoneBad ? 'e.g. 06 12 34 56 78' : undefined}>
+            <Input type="tel" autoComplete="tel" required placeholder="06 12 34 56 78" value={form.phone} onChange={set('phone')} />
+          </Field>
+          <Field label="Email *">
+            <Input type="email" autoComplete="username" required value={form.email} onChange={set('email')} />
+          </Field>
+          <Field label="City">
+            <Input autoComplete="address-level2" placeholder="Marrakech" value={form.city} onChange={set('city')} />
+          </Field>
+          <Field label="Who you are *" className="sm:col-span-2">
+            <Input
+              required
+              placeholder="3rd-year computer science student, FST Marrakech"
+              value={form.headline}
+              onChange={set('headline')}
+            />
+          </Field>
+          <Field label="LinkedIn or portfolio" className="sm:col-span-2">
+            <Input type="url" placeholder="https://linkedin.com/in/…" value={form.linkedin} onChange={set('linkedin')} />
+          </Field>
+          <Field label="Short background (skills, projects) — the AI uses it in your emails" className="sm:col-span-2">
+            <Textarea rows={3} value={form.background} onChange={set('background')} />
+          </Field>
+        </div>
 
-        <Field label="Password" invalid={tooShort} hint={tooShort ? `${MIN_PASSWORD} characters minimum` : undefined}>
+        <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Password *" invalid={tooShort} hint={tooShort ? `${MIN_PASSWORD} characters minimum` : undefined}>
           <Input
             type="password"
             autoComplete="new-password"
@@ -84,7 +126,7 @@ export default function Signup() {
           />
         </Field>
 
-        <Field label="Confirm password" invalid={mismatch} hint={mismatch ? 'The two passwords do not match.' : undefined}>
+        <Field label="Confirm password *" invalid={mismatch} hint={mismatch ? 'The two passwords do not match.' : undefined}>
           <Input
             type="password"
             autoComplete="new-password"
@@ -95,6 +137,8 @@ export default function Signup() {
             className={mismatch ? 'border-bad' : undefined}
           />
         </Field>
+        </div>
+        <p className="m-0 text-[11px] text-muted">* required</p>
 
         {error && <Message tone="bad">{error}</Message>}
 

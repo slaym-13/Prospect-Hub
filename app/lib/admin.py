@@ -10,8 +10,8 @@ import os
 from flask import Blueprint, g, jsonify
 
 from . import auth, store
-from .api import body, err
-from .util import clip
+from .api import body, err, messages
+from .util import clip, now_iso
 
 APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -45,6 +45,7 @@ def create_admin_api():
             'allowSignup': store.get()['settings'].get('allowSignup') is not False,
             'users': len(auth.list_users()),
             'admins': auth.count_admins(),
+            'openMessages': sum(1 for m in messages() if m.get('status') != 'resolved'),
         })
 
     # ----- accounts -----
@@ -99,6 +100,40 @@ def create_admin_api():
         store.get()['settings']['allowSignup'] = enabled
         store.save()
         return jsonify({'allowSignup': enabled})
+
+    # ----- messages from users -----
+    @r.get('/messages')
+    def list_messages():
+        return jsonify(list(reversed(messages())))
+
+    @r.patch('/messages/<mid>')
+    def answer_message(mid):
+        m = next((x for x in messages() if x.get('id') == mid), None)
+        if not m:
+            return err(404, 'No such message.')
+        b = body()
+        if 'reply' in b:
+            m['reply'] = clip(b['reply'], 2000).strip()
+            m['repliedAt'] = now_iso() if m['reply'] else None
+            m['repliedBy'] = g.user if m['reply'] else None
+            if m['reply'] and 'status' not in b:
+                m['status'] = 'resolved'
+        if 'status' in b:
+            if b['status'] not in ('open', 'resolved'):
+                return err(400, 'Status is "open" or "resolved".')
+            m['status'] = b['status']
+        store.save()
+        return jsonify(m)
+
+    @r.delete('/messages/<mid>')
+    def delete_message(mid):
+        lst = messages()
+        m = next((x for x in lst if x.get('id') == mid), None)
+        if not m:
+            return err(404, 'No such message.')
+        lst.remove(m)
+        store.save()
+        return jsonify({'ok': True})
 
     # ----- company records -----
     @r.post('/leads')

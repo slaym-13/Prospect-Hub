@@ -9,9 +9,9 @@ import { dateTime } from '../../lib/format';
 
 const newRequestId = () => 'r' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
-/** Write the email (Claude or a template), edit it, send it. */
+/** Write the email (Gemini, or a template without a key), edit it, send it. */
 export function DraftComposer({ lead, onUpdate }) {
-  const { settings, config } = useApp();
+  const { settings, config, reloadConfig } = useApp();
   const draft = lead.draft || {};
 
   const [options, setOptions] = useState({
@@ -46,13 +46,14 @@ export function DraftComposer({ lead, onUpdate }) {
       setMessage(
         d.ai === false
           ? {
-              tone: 'info',
+              tone: d.aiError ? 'bad' : 'info',
               text: d.aiError
-                ? `AI unavailable (${d.aiError}). A basic template was used.`
-                : 'No ANTHROPIC_API_KEY set: a basic template was used. Edit it before sending.'
+                ? `The AI could not write this draft: ${d.aiError} A basic template was used instead.`
+                : 'No Gemini key yet, so a basic template was used. Add your key in Settings to have the AI write it.'
             }
-          : { tone: 'good', text: 'Draft written by Claude. Check every detail before sending.' }
+          : { tone: 'good', text: 'Draft written by Gemini. Check every detail before sending.' }
       );
+      reloadConfig();
     } catch (e) {
       setMessage({ tone: 'bad', text: e.message });
     } finally {

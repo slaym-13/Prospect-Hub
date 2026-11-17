@@ -45,6 +45,15 @@ export function AppProvider({ children }) {
     refresh();
   }, [refresh]);
 
+  /** Re-read the account state (AI status, profile, inbox count) without reloading the page. */
+  const reloadConfig = useCallback(async () => {
+    try {
+      setConfig(await api.config());
+    } catch {
+      /* the next full refresh will show it */
+    }
+  }, []);
+
   /** Merge one lead's fresh fields into the cached list without refetching everything. */
   const mergeLead = useCallback((lead) => {
     setLeads((list) =>
@@ -122,9 +131,9 @@ export function AppProvider({ children }) {
   const value = useMemo(
     () => ({
       config, settings, leads: scored, rawLeads: leads, loading, error, job, toasts,
-      refresh, loadLeads, mergeLead, startJob, cancelJob, saveSettings, toast, dismissJob: () => setJob(null)
+      refresh, reloadConfig, loadLeads, mergeLead, startJob, cancelJob, saveSettings, toast, dismissJob: () => setJob(null)
     }),
-    [config, settings, scored, leads, loading, error, job, toasts, refresh, loadLeads, mergeLead, startJob, cancelJob, saveSettings, toast]
+    [config, settings, scored, leads, loading, error, job, toasts, refresh, reloadConfig, loadLeads, mergeLead, startJob, cancelJob, saveSettings, toast]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

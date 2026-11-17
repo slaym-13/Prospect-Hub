@@ -10,14 +10,14 @@ import { cn } from '../../lib/cn';
 
 const SUGGESTIONS = [
   'How does the fit score work?',
-  'How do I find an email address?',
   'What happens when I log a contact?',
-  'How many companies still have no email?'
+  'How do I build my CV?',
+  'How many follow-ups are due today?'
 ];
 
 /** Chat with the built-in help assistant. The conversation is kept on the server. */
 export function AssistantPanel({ onClose }) {
-  const { config } = useApp();
+  const { config, reloadConfig } = useApp();
   const [history, setHistory] = useState([]);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
@@ -48,6 +48,7 @@ export function AssistantPanel({ onClose }) {
       setHistory(r.history);
     } catch (e) {
       setError(e.message);
+      reloadConfig();
       setHistory((h) => h.slice(0, -1));
       setQuestion(message);
     } finally {
@@ -69,9 +70,13 @@ export function AssistantPanel({ onClose }) {
       badge={<span className="text-[13px] text-muted">Questions about how to use Prospect Hub</span>}
     >
       {!config.ai && (
-        <Message>
-          Add your Gemini API key in <Link to="/settings">Settings</Link> to use the assistant.
+        <Message tone={config.aiError ? 'bad' : 'info'}>
+          {config.aiError || 'No Gemini API key yet.'} <Link to="/settings">Open Settings</Link> to{' '}
+          {config.aiError ? 'fix it' : 'add one'}.
         </Message>
+      )}
+      {config.ai && config.aiError && !error && (
+        <Message tone="bad">The last AI request failed: {config.aiError}</Message>
       )}
 
       {!history.length && config.ai && (

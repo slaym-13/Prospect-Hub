@@ -98,7 +98,7 @@ export function UsersCard() {
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
-              {['Email', 'Role', 'AI key', 'Created', ''].map((h) => (
+              {['Account', 'Role', 'AI key', 'Created', ''].map((h) => (
                 <th key={h} className="border-b border-line bg-surface px-3 py-2 text-left text-xs font-semibold text-muted">
                   {h}
                 </th>
@@ -109,8 +109,11 @@ export function UsersCard() {
             {users.map((u) => (
               <tr key={u.email} className="border-b border-line last:border-0">
                 <td className="px-3 py-2">
+                  {u.fullName && <div className="font-medium">{u.fullName}</div>}
                   <span className="break-all">{u.email}</span>
                   {u.email === config.user && <span className="ml-1.5 text-xs text-muted">(you)</span>}
+                  {u.phone && <div className="text-xs text-muted">{u.phone}</div>}
+                  {!u.fullName && <div className="text-xs text-muted">profile not filled in</div>}
                   {u.defaultPassword && (
                     <Pill tone="bad" className="ml-1.5" title="Change this before the app is reachable publicly">
                       default password

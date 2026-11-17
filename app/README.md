@@ -43,9 +43,12 @@ machine only.
 > readable in the source, so any publicly reachable instance that keeps them is open
 > to anyone. The server warns on every start while they are in use.
 
-Anyone can create their own account from the sign-in page: **Create one** asks for an
-email, a password of at least 10 characters, and a confirmation of that password. New
-accounts are always ordinary users. An administrator can close registration with the
+Anyone can create their own account from the sign-in page: **Create one** asks for a
+full name, a phone number, an email, a line saying who they are (for example
+"3rd-year computer science student"), optionally a city, a LinkedIn link and a short
+background, and a password of at least 10 characters typed twice. That profile is the
+sender of every email the person sends (see [Profiles](#profiles-each-user-is-the-sender)).
+New accounts are always ordinary users. An administrator can close registration with the
 **Open registration** switch on the Admin page, which also hides the link.
 
 Accounts can also be added from the **Admin** page, or from the terminal:
@@ -133,13 +136,27 @@ header toggle overrides it.
 
 | Page | What it does |
 |---|---|
-| **Dashboard** | Coverage funnel, email coverage by category, rating bands, pipeline. Every chart has a Table view. |
+| **Dashboard** | Outreach funnel (companies, contacted, replied, won), outreach by category, rating bands, pipeline. Every chart has a Table view. |
 | **Today** | Follow-ups that are due, companies in conversation with no next step, then the best new leads by fit score. |
 | **Companies** | The full list: search, filter, sort, export CSV. Click a row for the company drawer. |
 | **Pipeline** | A kanban board. Each column scrolls on its own so the board stays one screen tall; the board scrolls sideways for the last columns. Drag a card or use its menu, filter every column at once, overdue follow-ups first. |
 | **Outbox** | Every message the app tried to send. |
-| **Settings** | Your Gemini API key, who you are, sending limits, the scoring weights (with a live count of how many companies each change promotes) and the category tiers. |
-| **Admin** | Administrators only. Accounts (add, change password, grant or remove rights, delete, open or close registration) and the company records themselves (correct, add, delete, reload the dataset). |
+| **CV** | A one-page CV from your profile and your notes, written by Gemini or laid out as typed. Plain black-on-white styling; print it or save it as PDF, or download it as HTML. |
+| **Settings** | Your profile and your Gemini API key (yours alone), then the shared outreach rules, the scoring weights (with a live count of how many companies each change promotes) and the category tiers. |
+| **Admin** | Administrators only. Messages from users, accounts (add, change password, grant or remove rights, delete, open or close registration) and the company records themselves (correct, add, delete, reload the dataset). |
+
+**Contact admin**, in the header for users who are not administrators, sends a message to
+the administrators. It shows up on the Admin page (the tab carries a count of open
+messages); the reply appears in the user's panel and marks the message answered.
+
+### Profiles: each user is the sender
+
+Every account has its own profile — full name, phone, who they are, city, LinkedIn,
+background, availability, reply-to address and signature — edited at the top of
+Settings and stored in `data/users.json`. When someone drafts an email, the AI writes as
+them; when they send it, the signature is theirs (by default: name, headline, phone and
+email) and replies go to their own address, not to the shared SMTP account. Accounts made
+by an administrator start without a profile, and a banner asks the person to fill it in.
 
 ### The company drawer
 
@@ -156,12 +173,20 @@ AI is per person, not per server. Each signed-in user pastes their own
 accepted, encrypted with AES-256-GCM before it is written to `data/users.json`, and
 never sent back to the browser.
 
-That key powers two things:
+That key powers three things:
 
 - **Write draft with AI** in the company panel. Without a key the button still works
   and fills in a plain template instead.
+- **Write with AI** on the CV page. Gemini gets only the person's profile and notes, is
+  told never to invent an employer, date or achievement, and returns JSON that the
+  server checks before showing. Contact details are added by the server, never by the model.
 - **Ask**, the help assistant (the button in the top right). It answers questions about
   how to use the app.
+
+When there is no key, or the last AI call failed (key refused, rate limit, quota, or a
+saved key that can no longer be decrypted because `SESSION_SECRET` changed), **Ask** and
+**Write with AI** turn grey and hovering them shows the reason. The error is stored per
+user and cleared by the next call that works.
 
 ### How the assistant knows things
 

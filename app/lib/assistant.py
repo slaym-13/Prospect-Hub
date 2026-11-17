@@ -24,11 +24,11 @@ website, category, rating and review count.
 
 ## Pages
 
-- **Dashboard** - headline numbers and four charts: the outreach funnel, email coverage
-  by category, Google rating bands, and the pipeline. Every chart has a "Table" toggle
-  that shows the same figures as numbers. Filters at the top narrow everything by
-  category and status. Buttons: "Fill websites (Places)" when a Google key is set, and
-  "Download CSV with emails".
+- **Dashboard** - headline numbers and four charts: the outreach funnel (companies,
+  contacted, replied, won), outreach by category (contacted or not yet), Google rating
+  bands, and the pipeline. Every chart has a "Table" toggle that shows the same figures
+  as numbers. Filters at the top narrow everything by category and status. Buttons:
+  "Fill websites (Places)" when a Google key is set, and "Download CSV".
 - **Today** - the day's work. "Follow-ups due" lists companies whose next-step date has
   arrived. "Needs a next step" lists companies in conversation with no date set.
   "Start with" suggests the best untouched companies by fit score, five at a time
@@ -45,6 +45,17 @@ website, category, rating and review count.
   first in each column, then the best scores. The search box at the top filters every
   column at once, and a column loads 25 cards at a time.
 - **Outbox** - every message the app tried to send, newest first, with the result.
+- **CV** - builds a one-page CV. Name, phone, email, city, LinkedIn and "who you are" come
+  from your profile in Settings. You type notes for experience, education and projects
+  (one block per entry, separated by an empty line: first line "title - organisation
+  (period)", then one line per point), plus skills and languages. "Write with AI" has
+  Gemini rewrite the notes into short bullet points and a two-sentence summary, using
+  only what you wrote; "Build without AI" lays the notes out as typed. "Print / PDF"
+  prints only the CV (choose "Save as PDF" in the print dialog) and "Download" saves it
+  as an HTML file. The style is deliberately plain: black on white, one column.
+- **Contact admin** - the button in the top right (for users who are not administrators)
+  opens a form to write to the administrators: a subject and a message. Your messages
+  and the administrators' replies are listed under it, marked "waiting" or "answered".
 - **Admin** - administrators only, and the tab is hidden from everyone else. Three
   parts: headline counts; Accounts, to add people, change a password, grant or remove
   administrator rights, delete an account and open or close public registration with
@@ -52,8 +63,13 @@ website, category, rating and review count.
   company's name, category, address, phone, email, website, rating or review count,
   add a company by hand, delete one, or reload the dataset that ships with the app.
   Editing a record there is different from the Companies page, which changes a
-  company's status, notes and follow-ups rather than its underlying data.
-- **Settings** - who you are, sending limits, the AI key, the scoring weights and the
+  company's status, notes and follow-ups rather than its underlying data. Administrators
+  also read and answer the messages users send with "Contact admin"; the Admin tab shows
+  how many are waiting.
+- **Settings** - your profile (full name, phone, who you are, city, LinkedIn, background,
+  availability, reply-to address and signature: these are yours alone, and every email
+  you send is written and signed as you), your AI key, then the shared outreach rules
+  (default goal and language, opt-out lines, daily limit), the scoring weights and the
   category tiers. The Fit score panel shows, live as you drag a slider, how many
   companies would land in each band. The Category tiers panel lists every category
   with how many companies it holds, biggest first, and sets the tier with five
@@ -115,8 +131,11 @@ emailed. In dry-run mode messages are logged in the Outbox but never delivered.
 ## Signing in
 
 Each person has their own account. The sign-in page links to **Create your account**,
-which asks for an email, a password of at least 10 characters, and the password a
-second time to confirm it; the form refuses to submit while the two differ. Signing up
+which asks for your full name, phone number, email, "who you are" (for example
+"3rd-year computer science student"), optionally your city, LinkedIn and a short
+background, and a password of at least 10 characters typed twice; the form refuses to
+submit while anything required is missing or the two passwords differ. Accounts created
+by an administrator start without a profile, and a banner asks to complete it. Signing up
 puts you straight into the app as an ordinary user, never an administrator. An
 administrator can close public registration from the Admin page, and the link then
 disappears from the sign-in page.
@@ -124,8 +143,10 @@ disappears from the sign-in page.
 ## The AI
 
 Each person adds their own Google Gemini API key on the Settings page. It is encrypted
-before it is stored and never shown again. The key powers two things: the email drafts
-and this assistant. Without a key the app still works - "Write draft with AI" falls
+before it is stored and never shown again. The key powers three things: the email
+drafts, the CV, and this assistant. When there is no key, or the last AI request failed
+(key refused, rate limit, quota), the Ask button and "Write with AI" turn grey and
+hovering them shows the reason; the AI card in Settings shows it too. Without a key the app still works - "Write draft with AI" falls
 back to a plain fill-in-the-blanks template. Get a key free at
 https://aistudio.google.com/apikey
 

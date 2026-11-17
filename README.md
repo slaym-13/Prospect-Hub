@@ -61,8 +61,11 @@ sont destinés au poste local uniquement.
 > qu'ils sont en usage.
 
 Chacun peut créer son propre compte depuis la page de connexion : **Créer un compte**
-demande une adresse, un mot de passe d'au moins 10 caractères, et la confirmation de
-ce mot de passe. Les comptes créés ainsi sont toujours des utilisateurs ordinaires. Un
+demande le nom complet, le numéro de téléphone, l'adresse email, une ligne qui dit qui
+l'on est (par exemple « étudiant en 3e année d'informatique »), en option la ville, un
+lien LinkedIn et un court parcours, puis un mot de passe d'au moins 10 caractères saisi
+deux fois. Ce profil est l'expéditeur de tous les emails envoyés par la personne : l'IA
+écrit en son nom, la signature porte ses coordonnées et les réponses lui reviennent. Les comptes créés ainsi sont toujours des utilisateurs ordinaires. Un
 administrateur peut fermer les inscriptions depuis la page Admin, ce qui masque aussi
 le lien.
 
@@ -126,7 +129,7 @@ navigateur.
 | `python server.py --reload` | API Flask en mode développement, redémarre à chaque modification d'un fichier `.py` |
 | `npm run dev` | serveur Vite avec rechargement à chaud, sur le port 5173 (à lancer en parallèle de l'API) |
 | `npm run build` | construit le client dans `app/dist` |
-| `python -m pytest` | 15 tests de bout en bout, sans accès internet |
+| `python -m pytest` | 20 tests de bout en bout, sans accès internet |
 | `python scripts/create_user.py` | crée un compte depuis le terminal |
 | `python enrich.py companies.json` | vérificateur de sites web, optionnel |
 
@@ -137,8 +140,9 @@ En développement, ouvrez **http://127.0.0.1:5173** (Vite relaie `/api` vers le 
 
 ## 4. Ce que fait la plateforme
 
-- **Tableau de bord** — indicateurs et 4 graphiques Chart.js, filtrables, chacun
-  doublé d'une vue tableau.
+- **Tableau de bord** — indicateurs et 4 graphiques Chart.js (entonnoir de prospection,
+  prospection par secteur, notes Google, pipeline), filtrables, chacun doublé d'une vue
+  tableau.
 - **Aujourd'hui** — les relances dues, puis les meilleurs prospects du jour classés
   par score d'opportunité.
 - **Entreprises** — les 283 fiches : recherche, filtres, tri et export CSV.
@@ -148,17 +152,24 @@ En développement, ouvrez **http://127.0.0.1:5173** (Vite relaie `/api` vers le 
   en retard en tête de colonne.
 - **Panneau entreprise** — contact (Appel, WhatsApp, Email, Maps, Site), score
   détaillé, rédaction assistée par IA, envoi, journal des contacts, audit du site.
+- **CV** — un CV d'une page à partir du profil et de notes (expériences, formation,
+  projets, compétences, langues), rédigé par Gemini ou mis en page tel quel. Style
+  sobre, noir sur blanc ; impression / PDF ou téléchargement en HTML.
+- **Contacter l'admin** — un bouton dans l'en-tête permet d'écrire aux administrateurs ;
+  la réponse s'affiche dans le panneau de l'utilisateur.
 - **Admin** — réservé aux administrateurs, l'onglet est masqué pour les autres.
-  Gestion des comptes (ajouter, changer un mot de passe, accorder ou retirer les
+  Messages des utilisateurs (répondre, marquer comme traité), gestion des comptes (ajouter, changer un mot de passe, accorder ou retirer les
   droits, supprimer, ouvrir ou fermer les inscriptions) et des fiches entreprise (corriger le nom, la catégorie,
   l'adresse, le téléphone, l'email, le site, la note, le nombre d'avis ; ajouter ou
   supprimer une entreprise ; recharger le jeu de données livré).
-- **Réglages** — identité de l'expéditeur, plafond d'envoi, clé IA, pondérations du
+- **Réglages** — profil personnel (l'expéditeur des emails), clé IA personnelle, puis
+  règles d'envoi communes, plafond d'envoi, pondérations du
   score (avec le nombre d'entreprises par palier qui se recalcule pendant qu'on
   déplace un curseur) et paliers par secteur, réglés en cinq boutons.
 - **Assistant « Ask »** — répond aux questions sur l'application à partir d'un guide
   interne, d'un instantané des données de l'utilisateur et de l'historique de la
-  conversation.
+  conversation. Sans clé, ou si le dernier appel à Gemini a échoué, le bouton est grisé
+  et son survol indique la raison (pas encore de clé, clé refusée, quota atteint…).
 
 ### Le score d'opportunité
 
