@@ -9,8 +9,8 @@ Open `index.html` in any modern browser. No install, no server, no internet need
 | File | Purpose |
 |---|---|
 | `index.html` | The app. Company data is embedded in the file. |
-| `companies.json` | The same 283 companies as a plain list. Input for `enrich.mjs`. |
-| `enrich.mjs` | Optional website checker. Needs Node 18 or newer. |
+| `companies.json` | The same 283 companies as a plain list. Input for `enrich.py`. |
+| `enrich.py` | Optional website checker, now at `app/enrich.py`. Needs Python 3.10+ and `requests`. |
 | `CHANGELOG.md` | What changed from v1. |
 
 ## A daily routine
@@ -65,8 +65,8 @@ Change the weights with the sliders on **Scoring**. Every list re-ranks as you m
 
 Without this step, Pain is based only on the website address. Running the checker makes it more precise.
 
-1. Put `companies.json` and `enrich.mjs` in one folder.
-2. Run `node enrich.mjs companies.json`.
+1. Put `companies.json` and `enrich.py` in one folder (`pip install requests` once).
+2. Run `python enrich.py companies.json`.
 3. It writes `enrichment.json`. In the app, go to **Data → Import**, choose the file, press **Read**, then **Apply**.
 
 Useful options: `--concurrency 8`, `--timeout 15000`, `--force` (re-check everything). If it stops, run it again and it resumes.

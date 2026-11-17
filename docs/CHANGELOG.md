@@ -1,3 +1,29 @@
+# 2026-11-17 — the server moves to Python
+
+The platform in `app/` no longer runs on Node.js. The Express 5 API, its scripts and its
+tests were rewritten in Python with the same routes, responses and rules:
+
+| Before (JavaScript) | Now (Python) |
+|---|---|
+| `server.js`, `app.js` (Express 5) | `server.py`, `app.py` (Flask 3, served by waitress) |
+| `lib/*.js` | `lib/*.py` — same modules, same responsibilities |
+| `api/index.js` (Vercel, Node runtime) | `api/index.py` (Vercel, Python runtime) |
+| `bcryptjs`, `crypto` | `bcrypt`, `cryptography` (AES-256-GCM) |
+| `nodemailer` | `smtplib` |
+| `csv-parse`, `csv-stringify` | the standard `csv` module |
+| `scripts/create-user.js` | `scripts/create_user.py` |
+| `tests/e2e.test.js` (`node --test`) | `tests/test_e2e.py` (pytest) |
+| `enrich.mjs` | `enrich.py` |
+
+Existing `data/db.json`, `data/users.json` and `data/.secret` files keep working: password
+hashes, encrypted AI keys and session cookies use the same formats. The React client is
+unchanged; Node.js is now only needed to build it. The presentation scripts moved from
+pptxgenjs to python-pptx.
+
+The notes below describe the earlier Prospect Ledger prototype and are kept as history.
+
+---
+
 # Prospect Ledger v2: changes from v1
 
 Date: 2026-10-08

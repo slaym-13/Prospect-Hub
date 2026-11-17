@@ -1,0 +1,223 @@
+"""The in-app help assistant. It answers questions about how to use Prospect Hub.
+
+Its "memory" is three things:
+  1. KNOWLEDGE  - a written guide to the app, below. This is what it knows.
+  2. snapshot() - a few live numbers from the person's own data.
+  3. history    - the conversation so far, kept per user in db.json.
+"""
+from datetime import date
+
+from . import ai, store
+from .util import ApiError, now_iso
+
+MAX_TURNS = 20          # kept per person; older messages are dropped
+MAX_QUESTION = 1000
+
+# Everything the assistant knows about the product. Edit this when the app changes.
+KNOWLEDGE = """
+# Prospect Hub
+
+A web app for finding companies in Marrakech, contacting them (usually with a
+spontaneous internship application or a service pitch), and tracking the replies.
+The company list comes from Google Places: 283 companies with name, address, phone,
+website, category, rating and review count.
+
+## Pages
+
+- **Dashboard** - headline numbers and four charts: the outreach funnel, email coverage
+  by category, Google rating bands, and the pipeline. Every chart has a "Table" toggle
+  that shows the same figures as numbers. Filters at the top narrow everything by
+  category and status. Buttons: "Fill websites (Places)" when a Google key is set, and
+  "Download CSV with emails".
+- **Today** - the day's work. "Follow-ups due" lists companies whose next-step date has
+  arrived. "Needs a next step" lists companies in conversation with no date set.
+  "Start with" suggests the best untouched companies by fit score, five at a time
+  (change that number in Settings). "Skip 7 days" hides a company for a week.
+- **Companies** - the full table. Search by name, address or category; filter by email
+  state (has email, none, not searched, no website) and by status; sort by any column.
+  "Download CSV" exports everything, scores and statuses included.
+  Click any row to open that company.
+- **Pipeline** - a board with columns New, Contacted, Replied, Meeting, Won, Lost.
+  Drag a card to another column, or use the dropdown on the card (which works on a
+  phone). Each column scrolls on its own, so the board stays one screen tall, and the
+  whole board scrolls sideways to reach the last columns. A card shows the company,
+  its score, its follow-up date and whether it has an email. Overdue follow-ups come
+  first in each column, then the best scores. The search box at the top filters every
+  column at once, and a column loads 25 cards at a time.
+- **Outbox** - every message the app tried to send, newest first, with the result.
+- **Admin** - administrators only, and the tab is hidden from everyone else. Three
+  parts: headline counts; Accounts, to add people, change a password, grant or remove
+  administrator rights, delete an account and open or close public registration with
+  the "Open registration" switch; and Company records, to correct a
+  company's name, category, address, phone, email, website, rating or review count,
+  add a company by hand, delete one, or reload the dataset that ships with the app.
+  Editing a record there is different from the Companies page, which changes a
+  company's status, notes and follow-ups rather than its underlying data.
+- **Settings** - who you are, sending limits, the AI key, the scoring weights and the
+  category tiers. The Fit score panel shows, live as you drag a slider, how many
+  companies would land in each band. The Category tiers panel lists every category
+  with how many companies it holds, biggest first, and sets the tier with five
+  buttons (A, B, C, D, excluded) rather than a dropdown.
+
+## The company panel (click any company)
+
+- **Details**: status dropdown, address, phone, website, Google rating, and the contact
+  buttons. Call, WhatsApp, Email, Maps and Site each appear only when they can work -
+  WhatsApp needs a Moroccan mobile number (06, 07, +212), Email needs an address in the
+  data, Site needs a website.
+- **Fit score**: the 0-100 score with a bar and a sentence for each of the four factors.
+- **Next step**: the follow-up date that puts the company back on Today. Shortcuts for
+  "In 3 days" and "In a week".
+- **Write & send**: choose a goal (internship request or service pitch), a language
+  (French or English) and a tone (formal, warm, very short). "Write draft with AI" fills
+  the subject and body; edit them freely, then "Send email".
+- **Log a contact**: record a call, WhatsApp message, Instagram DM, visit or email, with
+  an outcome. The outcome moves the company along the pipeline automatically:
+  "No answer" and "Call back later" set Contacted; "Interested" sets Replied; "Demo or
+  meeting set" sets Meeting; "Not interested" and "Wrong number or closed" set Lost;
+  "Won" sets Won. It also proposes a follow-up date.
+- **Website checks**: five yes/no questions (site live, works on a phone, WhatsApp
+  button, chat widget, online booking). Answering them makes the Pain score accurate.
+- **Notes**: private free text.
+
+## The fit score
+
+A number from 0 to 100 built from four weighted factors. The weights are on Settings
+and every list re-ranks when you change them.
+
+- **Category fit** (default weight 30): how promising the line of work is. Each category
+  is graded A (best fit), B, C, D or Excluded. Excluded categories score 0 and never
+  appear on Today. Hotels, guest houses, travel agencies, estate agencies, health and
+  restaurants are A by default.
+- **Pain** (30): highest when the company has no website at all, then a social page only,
+  then a free builder site, then its own domain. Failing website checks add to it.
+- **Reach** (15): a mobile number scores full, a landline half, no phone zero.
+- **Volume** (25): more Google reviews means more customer messages, on a log scale.
+
+## Email addresses
+
+Addresses ship with the company data. About half the 283 companies have one. A
+company's address is shown in its Details panel and in the Email column on the
+Companies page; the Email button in the contact row opens your mail app with a new
+message to it. The "Has email" / "No email" filter on Companies narrows the list. The
+app does not search the web for addresses, and there is no import screen: the dataset
+is part of the application and loads itself on first start.
+
+## Sending rules
+
+Sending needs SMTP details in the server's .env file; without them the Send button
+reports that sending is off. Protections that always apply: your opt-out line is added
+to every message, a List-Unsubscribe header is set, there is a daily cap (20 by
+default, change it in Settings), the app refuses to email the same company twice
+within 14 days unless you confirm, and a company marked "Do not contact" can never be
+emailed. In dry-run mode messages are logged in the Outbox but never delivered.
+
+## Signing in
+
+Each person has their own account. The sign-in page links to **Create your account**,
+which asks for an email, a password of at least 10 characters, and the password a
+second time to confirm it; the form refuses to submit while the two differ. Signing up
+puts you straight into the app as an ordinary user, never an administrator. An
+administrator can close public registration from the Admin page, and the link then
+disappears from the sign-in page.
+
+## The AI
+
+Each person adds their own Google Gemini API key on the Settings page. It is encrypted
+before it is stored and never shown again. The key powers two things: the email drafts
+and this assistant. Without a key the app still works - "Write draft with AI" falls
+back to a plain fill-in-the-blanks template. Get a key free at
+https://aistudio.google.com/apikey
+
+## Good to know
+
+- Light, dark and automatic themes: the button in the top right cycles between them.
+- Data lives in data/db.json on the server, so everyone signed in sees the same
+  companies, statuses and notes. The AI key is the only per-person setting.
+- An AI draft can be wrong. Read every message before sending it.
+"""
+
+
+def snapshot():
+    """A few live numbers so the assistant can answer "how many..." about real data."""
+    leads = list(store.get()['leads'].values())
+    n = len(leads)
+    if not n:
+        return 'The company list is empty.'
+    with_email = sum(1 for l in leads if l.get('email'))
+    with_site = sum(1 for l in leads if l.get('site_web'))
+    by_status = {}
+    for l in leads:
+        by_status[l.get('status')] = by_status.get(l.get('status'), 0) + 1
+    today = date.today().isoformat()
+    due = sum(1 for l in leads if l.get('nextStep') and l['nextStep'] <= today)
+    sent = sum(1 for l in leads for s in (l.get('sent') or []) if s.get('ok'))
+    return '\n'.join([
+        f'Companies: {n}',
+        f'With an email address: {with_email}',
+        f'With a website: {with_site}',
+        'By status: ' + ', '.join(f'{k} {v}' for k, v in by_status.items()),
+        f'Follow-ups due today: {due}',
+        f'Emails sent so far: {sent}',
+    ])
+
+
+SYSTEM = """You are the built-in help assistant for Prospect Hub, a web app the user is signed into right now.
+
+Answer questions about how to use the app, using the guide in <app_guide>. The guide is
+the truth about this app: never invent a page, button or setting that is not in it. If
+the guide does not cover something, say so plainly and suggest the closest thing that
+does exist.
+
+<live_data> holds current numbers from this user's own database. Use it when they ask
+about their data. It is a summary, not the full list: for anything more specific, point
+them at the page that shows it.
+
+Be brief and concrete. Name the page and the button to press. Two or three sentences is
+usually enough; use a short list only for genuine step-by-step instructions. Plain text,
+no markdown headings, no emoji. Match the language the user writes in (French or English).
+
+You only answer questions about this app. If asked about anything else, say that is
+outside what you can help with here."""
+
+
+def conversations():
+    db = store.get()
+    if not isinstance(db.get('assistant'), dict):
+        db['assistant'] = {}
+    return db['assistant']
+
+
+def history(user):
+    return conversations().get(user) or []
+
+
+def clear(user):
+    conversations().pop(user, None)
+    store.save()
+
+
+def ask(user, question, api_key):
+    """Answer one question and remember the exchange. Returns {'reply', 'history'}."""
+    text = (question if isinstance(question, str) else '').strip()[:MAX_QUESTION]
+    if not text:
+        raise ApiError('Ask a question first.', status=400)
+
+    past = history(user)
+    context = f'<app_guide>\n{KNOWLEDGE}\n</app_guide>\n\n<live_data>\n{snapshot()}\n</live_data>'
+    messages = [
+        # The guide goes in as the opening exchange so it stays in front of the model
+        # without being repeated on every turn of the conversation.
+        {'role': 'user', 'text': context + '\n\nAcknowledge in one word that you have read this.'},
+        {'role': 'model', 'text': 'Ready.'},
+        *({'role': m['role'], 'text': m['text']} for m in past),
+        {'role': 'user', 'text': text},
+    ]
+
+    out = ai.generate(api_key, SYSTEM, messages, max_tokens=800, temperature=0.3)
+
+    conv = conversations()
+    conv[user] = (past + [{'role': 'user', 'text': text, 'at': now_iso()},
+                          {'role': 'model', 'text': out['text'], 'at': now_iso()}])[-MAX_TURNS * 2:]
+    store.save()
+    return {'reply': out['text'], 'history': conv[user]}

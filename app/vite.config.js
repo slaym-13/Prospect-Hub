@@ -2,8 +2,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
-// Client lives in client/, builds into dist/, which Express serves.
-// In development, `npm run dev` runs this server and proxies /api to Express on :3000.
+// Client lives in client/, builds into dist/, which the Python (Flask) server serves.
+// In development, `npm run dev` runs this server and proxies /api to Flask on :3000
+// (start that one with `python server.py --reload`).
 export default defineConfig({
   root: 'client',
   plugins: [react(), tailwindcss()],

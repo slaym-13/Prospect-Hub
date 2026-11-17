@@ -9,16 +9,17 @@ exploration → nettoyage en Python → analyse → application web.
 
 | Dossier | Contenu |
 |---|---|
-| [`app/`](app/) | La plateforme : client React 19 + Vite + Tailwind, API Express 5 |
+| [`app/`](app/) | La plateforme : serveur Python (Flask 3), client React 19 + Vite + Tailwind |
 | [`analysis/`](analysis/) | La chaîne de traitement Python : exploration, nettoyage, analyse |
-| [`presentation/`](presentation/) | La présentation du projet et le script qui la génère |
+| [`presentation/`](presentation/) | La présentation du projet et le script Python (python-pptx) qui la génère |
 | [`docs/`](docs/) | Historique et notes du prototype initial |
 
 ---
 
 ## 1. Installation
 
-Prérequis : **Node.js 18.17 ou plus**, **Python 3.10 ou plus**, et npm.
+Prérequis : **Python 3.10 ou plus** et pip. **Node.js 20.19 ou plus** sert uniquement à
+construire l'interface React ; il n'est pas nécessaire pour faire tourner le serveur.
 
 ```bash
 git clone https://github.com/slaym-13/Prospect-Suite.git
@@ -29,10 +30,12 @@ cd Prospect-Suite
 
 ```bash
 cd app
-npm install
+python -m venv .venv
+source .venv/bin/activate   # Windows : .venv\Scripts\activate
+pip install -r requirements.txt
 cp .env.example .env        # voir la configuration ci-dessous
-npm run build               # construit le client React dans app/dist
-npm start                   # http://127.0.0.1:3000
+npm install && npm run build  # construit le client React dans app/dist
+python server.py            # http://127.0.0.1:3000
 ```
 
 Le jeu de données fait partie de l'application : les 283 entreprises de
@@ -45,7 +48,7 @@ Au démarrage, si la base ne contient aucun compte, l'application en crée un à
 de `ADMIN_EMAIL` et `ADMIN_PASSWORD` :
 
 ```bash
-ADMIN_EMAIL=vous@exemple.com ADMIN_PASSWORD='un mot de passe long' npm start
+ADMIN_EMAIL=vous@exemple.com ADMIN_PASSWORD='un mot de passe long' python server.py
 ```
 
 Sans ces variables, un compte de développement est créé avec des identifiants par
@@ -66,7 +69,7 @@ le lien.
 Les comptes peuvent aussi être créés depuis la page **Admin**, ou en ligne de commande :
 
 ```bash
-npm run create-user -- collegue@exemple.com "un mot de passe assez long"
+python scripts/create_user.py collegue@exemple.com "un mot de passe assez long"
 ```
 
 ### La chaîne d'analyse
@@ -78,6 +81,17 @@ python 01_explore.py        # profil du fichier brut   -> outputs/exploration.js
 python 02_clean.py          # nettoyage                -> outputs/companies_clean.csv
 python 03_analyze.py        # analyse + 10 figures     -> outputs/analysis.json
 ```
+
+### La présentation
+
+```bash
+pip install python-pptx
+python presentation/build_deck.py   # depuis la racine -> presentation/deck_generated.pptx
+```
+
+Le script reprend les figures de `analysis/outputs/figures`. La version finale,
+`IOADA202_HARMACH_SOULAIMANE_VF.pptx`, a été retouchée à la main ; le script écrit
+donc dans un autre fichier pour ne jamais l'écraser (`--out` pour choisir).
 
 ---
 
@@ -108,15 +122,16 @@ navigateur.
 
 | Commande (dans `app/`) | Effet |
 |---|---|
-| `npm start` | sert l'API et le client déjà construit |
-| `npm run dev` | serveur Vite avec rechargement à chaud, sur le port 5173 |
-| `npm run dev:server` | API Express en mode `--watch` (à lancer en parallèle de `npm run dev`) |
+| `python server.py` | sert l'API et le client déjà construit (serveur waitress) |
+| `python server.py --reload` | API Flask en mode développement, redémarre à chaque modification d'un fichier `.py` |
+| `npm run dev` | serveur Vite avec rechargement à chaud, sur le port 5173 (à lancer en parallèle de l'API) |
 | `npm run build` | construit le client dans `app/dist` |
-| `npm test` | 12 tests de bout en bout, sans accès internet |
-| `npm run create-user` | crée un compte depuis le terminal |
+| `python -m pytest` | 15 tests de bout en bout, sans accès internet |
+| `python scripts/create_user.py` | crée un compte depuis le terminal |
+| `python enrich.py companies.json` | vérificateur de sites web, optionnel |
 
 En développement, ouvrez **http://127.0.0.1:5173** (Vite relaie `/api` vers le port
-3000). En production, `npm start` sert tout sur un seul port.
+3000). En production, `python server.py` sert tout sur un seul port.
 
 ---
 
@@ -153,8 +168,9 @@ joignabilité téléphonique (15). Les pondérations se modifient dans les régl
 tous les classements se recalculent immédiatement.
 
 La formule est implémentée deux fois — en Python dans
-[`analysis/03_analyze.py`](analysis/03_analyze.py) et en JavaScript dans
-[`app/client/src/lib/scoring.js`](app/client/src/lib/scoring.js) — afin que les
+[`analysis/03_analyze.py`](analysis/03_analyze.py) pour le rapport, et dans le
+navigateur dans [`app/client/src/lib/scoring.js`](app/client/src/lib/scoring.js) pour
+que les classements se recalculent instantanément — avec les mêmes poids, afin que les
 chiffres du rapport et ceux de l'application ne divergent jamais.
 
 ---
@@ -186,7 +202,7 @@ sur 282 dépassent 65/100 et constituent la cible prioritaire.
 
 ## 6. Sécurité et usage responsable
 
-Les mots de passe sont hachés avec bcrypt, les sessions sont des cookies HttpOnly
+Côté serveur (Python) : les mots de passe sont hachés avec bcrypt, les sessions sont des cookies HttpOnly
 signés, les tentatives de connexion sont limitées, les requêtes modifiantes exigent
 un en-tête spécifique, et une CSP stricte est appliquée.
 

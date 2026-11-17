@@ -5,19 +5,25 @@ It scores each company as a prospect, writes the first email with AI, sends it, 
 tracks the reply through a pipeline. Email addresses come with the data
 (`data/companies.csv`) and can be edited per company.
 
+- **Backend:** Python 3.10+ — Flask 3 + a JSON file database, in [`app.py`](app.py) and [`lib/`](lib/)
 - **Frontend:** React 19 + Vite 7 + Tailwind CSS 4, in [`client/`](client/)
-- **Backend:** Express 5 + a JSON file database, in [`lib/`](lib/)
 - **Data:** 283 companies collected from Google Places (`data/companies.csv`)
+
+The server, the scripts and the tests are Python. The only JavaScript left is the
+React client, which runs in the browser; Node.js is needed to build it, not to run the
+app.
 
 ## Install
 
-Node 18.17 or newer.
+Python 3.10 or newer, and Node.js 20.19 or newer for the client build.
 
 ```bash
-npm install
-cp .env.example .env    # fill in what you have; everything is optional
-npm run build           # builds the React client into dist/
-npm start               # http://127.0.0.1:3000
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env               # fill in what you have; everything is optional
+npm install && npm run build       # builds the React client into dist/
+python server.py                   # http://127.0.0.1:3000
 ```
 
 ### The administrator account
@@ -26,7 +32,7 @@ On start, if the database holds no account, one is created from `ADMIN_EMAIL` an
 `ADMIN_PASSWORD`:
 
 ```bash
-ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='a long password' npm start
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='a long password' python server.py
 ```
 
 Without those variables a development account is created instead, and the server
@@ -45,7 +51,7 @@ accounts are always ordinary users. An administrator can close registration with
 Accounts can also be added from the **Admin** page, or from the terminal:
 
 ```bash
-npm run create-user -- colleague@example.com "a long password"
+python scripts/create_user.py colleague@example.com "a long password"
 ```
 
 The dataset ships with the app: on first start the 283 companies in
@@ -54,27 +60,49 @@ data then lives in `data/db.json`.
 
 ## Develop
 
-Two terminals. Vite serves the client with hot reload and proxies `/api` to Express:
+Two terminals. Vite serves the client with hot reload and proxies `/api` to Flask:
 
 ```bash
-npm run dev:server      # Express API on :3000
-npm run dev             # Vite dev server on :5173  <- open this one
+python server.py --reload   # Flask API on :3000, restarts when a .py file changes
+npm run dev                 # Vite dev server on :5173  <- open this one
 ```
 
-`npm start` alone serves the last `npm run build`, so run the build after changing the
-client if you are not using the dev server.
+`python server.py` alone serves the last `npm run build`, so run the build after
+changing the client if you are not using the dev server.
 
-## Scripts
+## Commands
 
-| Script | What it does |
+| Command | What it does |
 |---|---|
+| `python server.py` | Serve the API and the built client (waitress, 8 threads) |
+| `python server.py --reload` | Flask development server, restarts on Python changes |
 | `npm run dev` | Vite dev server with hot reload (proxies `/api` to :3000) |
-| `npm run dev:server` | Express with `--watch` |
 | `npm run build` | Build the client into `dist/` |
-| `npm start` | Serve the API and the built client |
-| `npm run preview` | Build, then serve, in one command |
-| `npm test` | End-to-end tests against local mock servers (no internet needed) |
-| `npm run create-user` | Create a login from the terminal |
+| `python -m pytest` | End-to-end tests against a local mock of Gemini (no internet needed) |
+| `python scripts/create_user.py` | Create a login from the terminal |
+| `python enrich.py companies.json` | Optional website checker (see below) |
+
+## How the backend is organised
+
+```
+server.py           entry point: loads .env, serves with waitress (or --reload)
+app.py              create_app(): security headers, CSRF header check, sign-in gate,
+                    the /api blueprints, the built client and its fallback route
+api/index.py        the same app for Vercel's Python runtime
+lib/
+  store.py          the JSON-file database (db.json), CSV import and export
+  api.py            the REST routes and input validation
+  admin.py          administrator routes: accounts and company records
+  auth.py           accounts, bcrypt, signed session cookies, AES-GCM for AI keys
+  ai.py             Gemini calls: the first-contact email
+  assistant.py      the help assistant's guide, live numbers and memory
+  mailer.py         SMTP sending (smtplib), List-Unsubscribe header, dry run
+  places.py         Google Places details
+  jobs.py           one background job at a time, with progress
+  util.py           value coercion and time helpers shared by the above
+scripts/create_user.py
+tests/test_e2e.py
+```
 
 ## How the frontend is organised
 
@@ -139,7 +167,7 @@ That key powers two things:
 
 It has no training on this app, so it is given what it needs on every question:
 
-1. A written guide to the app, `KNOWLEDGE` in [`lib/assistant.js`](lib/assistant.js):
+1. A written guide to the app, `KNOWLEDGE` in [`lib/assistant.py`](lib/assistant.py):
    the pages, the company panel, the scoring factors, how email finding works and the
    sending rules. **Edit that string whenever the app changes** — it is the single
    place the assistant learns from, and it is told never to invent a button that is
@@ -154,7 +182,10 @@ It has no training on this app, so it is given what it needs on every question:
 ## The fit score
 
 Each company gets 0–100 from four weighted factors. The weights and the category tiers
-are on the Settings page, and every list re-ranks as you change them.
+are on the Settings page, and every list re-ranks as you change them. The score is
+computed in the browser ([`client/src/lib/scoring.js`](client/src/lib/scoring.js)) so
+a slider change re-ranks instantly; the analysis pipeline computes the same formula in
+Python.
 
 | Factor | Default weight | Scores high when |
 |---|---|---|
@@ -171,6 +202,7 @@ and never appear on Today.
 | Variable | Purpose |
 |---|---|
 | `SESSION_SECRET` | 24+ random characters; keeps logins valid across restarts |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | the administrator created on first start |
 | `GEMINI_MODEL` | which Gemini model the users' keys call (default `gemini-2.5-flash`) |
 | `SMTP_HOST/PORT/USER/PASS`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME` | sending (Gmail needs an app password) |
 | `SMTP_MODE=json` | dry run: logs messages, delivers nothing |
@@ -180,15 +212,21 @@ and never appear on Today.
 
 ## Deploying
 
-Build on the host and serve with `npm start`:
+Build the client, install the Python requirements, and run the server:
 
 ```
-Build command:  npm install && npm run build
-Start command:  npm start
+Build command:  pip install -r requirements.txt && npm install && npm run build
+Start command:  python server.py
 ```
 
 Set `HOST=0.0.0.0`, a long `SESSION_SECRET`, and `TRUST_PROXY=true` behind a proxy.
 `data/db.json` is a plain file, so give it a persistent disk, or it is wiped on each deploy.
+
+On **Vercel**, [`vercel.json`](vercel.json) builds the client and serves the API from
+[`api/index.py`](api/index.py) on the Python runtime, which installs
+`requirements.txt` by itself. Set `DATA_DIR=/tmp/data`: it is the only writable
+place, and it is emptied between cold starts, so the dataset reloads from
+`data/companies.csv` and accounts come back from `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 
 ## Sending responsibly
 
@@ -201,14 +239,23 @@ every draft: AI text can be wrong. Respect replies that say stop. Start in dry-r
 ## Security notes
 
 Passwords are bcrypt-hashed, sessions are signed HttpOnly cookies, login is
-rate-limited, state-changing requests need a custom header, a strict CSP is set, and
-the crawler refuses private and internal addresses. Keep it on localhost, or put it
-behind HTTPS and set `TRUST_PROXY`.
+rate-limited, state-changing requests need a custom header, and a strict CSP is set.
+Keep it on localhost, or put it behind HTTPS and set `TRUST_PROXY`.
 
 ## Tests
 
-`npm test` runs the end-to-end suite against local mock servers: auth, seeding the
-dataset, the per-user AI key (including that it is never returned and never stored in
-the clear), AI drafts, the assistant's memory, sending rules, the contact log,
-settings, CSV export, and that the built client is served on every route. No internet
-needed.
+`python -m pytest` runs the end-to-end suite against a local mock of Gemini: auth,
+seeding the dataset, the per-user AI key (including that it is never returned and
+never stored in the clear), AI drafts, the assistant's memory, sending rules, the
+contact log, settings, CSV export, administration, and that the built client is served
+on every route (that one is skipped until `npm run build` has run). No internet needed.
+
+## Website checker (optional)
+
+`enrich.py` visits each company's website once and records whether it is live, works
+on a phone, and has a WhatsApp button, a chat widget or online booking:
+
+```bash
+python enrich.py companies.json                 # writes enrichment.json
+python enrich.py companies.json out.json --concurrency 8 --timeout 15000 --force
+```
