@@ -1,5 +1,6 @@
 """Accounts, roles, signed session cookies, and each user's encrypted Gemini key."""
 import base64
+import copy
 import hashlib
 import hmac
 import json
@@ -11,7 +12,9 @@ from urllib.parse import unquote
 
 import bcrypt
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from flask import g, has_request_context
 
+from . import kv
 from .store import DATA_DIR
 from .util import now_iso, now_ms
 
@@ -34,6 +37,18 @@ def _b64d(s):
 
 
 def read_users():
+    if kv.enabled():
+        # One query per request, not one per call: a request asks several times.
+        if has_request_context() and '_ph_users' in g:
+            return copy.deepcopy(g._ph_users)
+        text = kv.read('users')[0]
+        try:
+            users = json.loads(text) if text else []
+        except ValueError:
+            users = []
+        if has_request_context():
+            g._ph_users = users
+        return copy.deepcopy(users)
     try:
         with open(USERS_FILE, encoding='utf-8') as f:
             return json.load(f)
@@ -43,6 +58,11 @@ def read_users():
 
 def write_users(users):
     with _users_lock:
+        if kv.enabled():
+            kv.write('users', json.dumps(users, ensure_ascii=False))
+            if has_request_context():
+                g._ph_users = copy.deepcopy(users)
+            return
         os.makedirs(DATA_DIR, exist_ok=True)
         fd = os.open(USERS_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
@@ -53,6 +73,9 @@ def _secret():
     env = os.environ.get('SESSION_SECRET') or ''
     if len(env) >= 24:
         return env
+    if kv.enabled():
+        # Every instance must sign with the same key, so it lives with the data.
+        return kv.insert_if_missing('secret', secrets.token_hex(32))
     try:
         with open(SECRET_FILE, encoding='utf-8') as f:
             return f.read().strip()
@@ -444,8 +467,11 @@ def parse_cookies(header):
 
 
 def session_from(request):
+    """The signed-in session, or None. A valid cookie for an account that no longer
+    exists (deleted, or lost with a wiped disk) counts as signed out."""
     t = parse_cookies(request.headers.get('Cookie')).get(COOKIE)
-    return verify(t) if t else None
+    s = verify(t) if t else None
+    return s if s and get_user(s.get('u')) else None
 
 
 def set_session(request, response, email):

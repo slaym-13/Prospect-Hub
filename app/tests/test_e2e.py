@@ -153,8 +153,15 @@ def test_each_user_brings_their_own_gemini_key(api):
     # the key itself never comes back to the browser
     assert 'AIza-a-perfectly' not in json.dumps(call('GET', '/api/config')[1])
     # and it is not stored in the clear
-    with open(os.path.join(TMP, 'users.json'), encoding='utf-8') as f:
-        users = json.load(f)
+    from lib import kv
+    if kv.enabled():   # DATABASE_URL=memory:// runs the whole suite on the database path
+        assert not os.path.exists(os.path.join(TMP, 'users.json')), 'accounts go to the database, not a file'
+        stored = kv.read('users')[0]
+    else:
+        with open(os.path.join(TMP, 'users.json'), encoding='utf-8') as f:
+            stored = f.read()
+    assert 'AIza-a-perfectly' not in stored
+    users = json.loads(stored)
     assert users[0]['aiKey'] and 'AIza-a-perfectly' not in users[0]['aiKey']
 
 
@@ -574,3 +581,29 @@ def test_a_saved_key_that_can_no_longer_be_read_is_reported(api):
     next(u for u in users if u['email'] == 'karim@example.com')['aiKey'] = 'not.a.real-blob'
     auth.write_users(users)
     assert auth.ai_state('karim@example.com') == {'ai': False, 'aiError': auth.UNREADABLE_KEY}
+
+
+def test_shared_database_sees_what_another_instance_wrote(api):
+    from lib import kv
+    if not kv.enabled():
+        pytest.skip('runs with DATABASE_URL=memory:// (see test_database_mode.py)')
+    call = api.call
+    call('POST', '/api/login', ADMIN)
+    lead_id = call('GET', '/api/leads')[1][0]['id']
+
+    # another server instance changes a lead and adds an account, straight in the database
+    db = json.loads(kv.read('db')[0])
+    db['leads'][lead_id]['notes'] = 'written by another instance'
+    kv.write('db', json.dumps(db))
+    users = json.loads(kv.read('users')[0])
+    from lib import auth
+    users.append({'email': 'ailleurs@example.com', 'hash': auth.hash_password('mot-de-passe-ailleurs'),
+                  'role': 'user', 'createdAt': '2026-01-01T00:00:00.000Z'})
+    kv.write('users', json.dumps(users))
+
+    assert call('GET', f'/api/leads/{lead_id}')[1]['notes'] == 'written by another instance'
+    assert any(u['email'] == 'ailleurs@example.com' for u in call('GET', '/api/admin/users')[1])
+    # and what this instance writes lands in the database at once
+    call('PATCH', f'/api/leads/{lead_id}', {'notes': 'written here'})
+    assert json.loads(kv.read('db')[0])['leads'][lead_id]['notes'] == 'written here'
+    call('DELETE', '/api/admin/users/ailleurs@example.com')

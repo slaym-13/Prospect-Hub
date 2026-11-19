@@ -1,4 +1,7 @@
-"""Tiny JSON-file database. Fine for a few thousand leads; nothing to install or run."""
+"""Tiny JSON database. Fine for a few thousand leads.
+
+A file in DATA_DIR by default; a row in Postgres (lib/kv.py) when DATABASE_URL is set.
+"""
 import copy
 import csv
 import io
@@ -8,6 +11,7 @@ import re
 import threading
 import time
 
+from . import kv
 from .util import clip, js_round, now_iso, now_ms, base36, random_id, parse_float, to_str
 
 DATA_DIR = os.environ.get('DATA_DIR') or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
@@ -36,6 +40,7 @@ STATUSES = ['new', 'contacted', 'replied', 'meeting', 'won', 'lost', 'optout']
 LOCK = threading.RLock()
 _db = None
 _timer = None
+_version = 0   # of the shared database row we loaded, when DATABASE_URL is set
 
 
 def blank_db():
@@ -53,20 +58,51 @@ def merge_settings(base, over):
     return out
 
 
-def load():
-    global _db
+def _read_raw():
+    """The stored database as a dict, or None when there is none yet."""
+    global _version
+    if kv.enabled():
+        text, _version = kv.read('db')
+        if text is None:
+            return None
+        try:
+            return json.loads(text)
+        except ValueError:
+            # Keep the unreadable copy aside instead of overwriting it with a blank one.
+            kv.write(f'db.corrupt-{now_ms()}', text)
+            print('The stored database was unreadable; a copy was kept and a blank one started.')
+            return None
     os.makedirs(DATA_DIR, exist_ok=True)
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, encoding='utf-8') as f:
-                _db = json.load(f)
+                return json.load(f)
         except (OSError, ValueError):
             bad = f'{DB_FILE}.corrupt-{now_ms()}'
             os.replace(DB_FILE, bad)
             print('db.json was unreadable and was moved to', bad)
-            _db = blank_db()
-    else:
-        _db = blank_db()
+    return None
+
+
+def refresh():
+    """With a shared database, pick up what other server instances wrote since we loaded.
+
+    Costs one small query; the document itself is only fetched when it changed.
+    """
+    if kv.enabled() and _db is not None and kv.version('db') != _version:
+        with LOCK:
+            load()
+
+
+def load():
+    global _db
+    with LOCK:
+        _db = _read_raw() or blank_db()
+        return _normalise()
+
+
+def _normalise():
+    """Fill in what older versions did not store, so every part of the app can rely on it."""
     _db['leads'] = _db.get('leads') or {}
     if not isinstance(_db.get('assistant'), dict):
         _db['assistant'] = {}
@@ -91,14 +127,13 @@ def load():
 
 
 def save_now():
-    global _timer
+    global _timer, _version
     if _db is None:
         return
     with LOCK:
         if _timer:
             _timer.cancel()
             _timer = None
-        os.makedirs(DATA_DIR, exist_ok=True)
         # Another request thread may be changing a lead while we serialise; try again.
         for _ in range(5):
             try:
@@ -106,6 +141,10 @@ def save_now():
                 break
             except RuntimeError:
                 time.sleep(0.01)
+        if kv.enabled():
+            _version = kv.write('db', text)
+            return
+        os.makedirs(DATA_DIR, exist_ok=True)
         tmp = DB_FILE + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
             f.write(text)
@@ -115,8 +154,9 @@ def save_now():
 def save():
     """Write soon. Several changes in a row become one write."""
     global _timer
-    if os.environ.get('VERCEL'):
-        # A serverless function is frozen after the response: write before returning.
+    if os.environ.get('VERCEL') or kv.enabled():
+        # A serverless function is frozen after the response, and other instances read
+        # the shared database: write before returning.
         return save_now()
     with LOCK:
         if _timer:

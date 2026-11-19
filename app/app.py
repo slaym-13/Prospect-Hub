@@ -39,6 +39,7 @@ def create_app():
             return jsonify({'error': 'Missing request header.'}), 403
         if request.is_json and request.content_length and request.get_json(silent=True) is None:
             return jsonify({'error': 'Bad request.'}), 400
+        store.refresh()   # another server instance may have written since this one loaded
         if (request.method, path) in PUBLIC:
             return None
         s = auth.session_from(request)

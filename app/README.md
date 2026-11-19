@@ -234,6 +234,7 @@ and never appear on Today.
 | `GOOGLE_PLACES_API_KEY` | fills missing websites and phone numbers |
 | `HOST`, `PORT`, `TRUST_PROXY` | server binding (default 127.0.0.1:3000) |
 | `DATA_DIR` | where `db.json` lives (default `data/`) |
+| `DATABASE_URL` | Postgres connection string; replaces the files in `DATA_DIR` |
 
 ## Deploying
 
@@ -249,9 +250,17 @@ Set `HOST=0.0.0.0`, a long `SESSION_SECRET`, and `TRUST_PROXY=true` behind a pro
 
 On **Vercel**, [`vercel.json`](vercel.json) builds the client and serves the API from
 [`api/index.py`](api/index.py) on the Python runtime, which installs
-`requirements.txt` by itself. Set `DATA_DIR=/tmp/data`: it is the only writable
-place, and it is emptied between cold starts, so the dataset reloads from
-`data/companies.csv` and accounts come back from `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+`requirements.txt` by itself. Its disk is emptied between cold starts, so set
+`DATABASE_URL` to a Postgres database (Supabase: **Connect → Transaction pooler**,
+port 6543). Accounts, companies and notes are then kept in one table,
+`prospect_hub.docs`, created on first start. To copy existing local data into it once:
+
+```
+DATABASE_URL="postgresql://..." python scripts/upload_to_database.py
+```
+
+Without `DATABASE_URL`, set `DATA_DIR=/tmp/data`: the dataset then reloads from
+`data/companies.csv` and only the account from `ADMIN_EMAIL` / `ADMIN_PASSWORD` comes back.
 
 ## Sending responsibly
 
