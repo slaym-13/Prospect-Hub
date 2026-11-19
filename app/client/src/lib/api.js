@@ -21,7 +21,14 @@ async function request(method, url, body, { raw = false } = {}) {
     throw new ApiError('Signed out', 401);
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(data.error || 'Request failed', res.status, data);
+  if (!res.ok) {
+    // No JSON error means the app itself never answered: the host failed or timed out.
+    const fallback =
+      res.status === 504
+        ? 'The server took too long to answer (504). Try again in a moment.'
+        : `The server could not answer (error ${res.status}). Check the server logs.`;
+    throw new ApiError(data.error || fallback, res.status, data);
+  }
   return data;
 }
 
