@@ -20,21 +20,30 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(os.path.join(ROOT, '.env'))
 
-try:
-    from app import create_app  # noqa: E402
-    app = create_app()
-except Exception as _e:  # noqa: BLE001
-    # Without this, Vercel answers every request with a bare crash page and the browser
-    # only says "request failed". Say what broke; the full trace goes to the logs.
+def _failed(e):
+    """A stand-in that says what broke, instead of Vercel's bare crash page (which the
+    browser can only report as "request failed"). The full trace goes to the logs."""
     print('The app could not start:\n' + traceback.format_exc())
-    _reason = type(_e).__name__
-    if 'psycopg' in type(_e).__module__ or 'connection' in str(_e).lower():
-        _hint = 'The database could not be reached. Check DATABASE_URL in the Vercel settings.'
+    if 'psycopg' in type(e).__module__ or 'connection' in str(e).lower():
+        hint = 'The database could not be reached. Check DATABASE_URL in the Vercel settings.'
     else:
-        _hint = 'Open the Vercel logs for the details.'
-    _body = json.dumps({'error': f'The server could not start ({_reason}). {_hint}'}).encode()
+        hint = 'Open the Vercel logs for the details.'
+    body = json.dumps({'error': f'The server could not start ({type(e).__name__}). {hint}'}).encode()
 
-    def app(environ, start_response):  # noqa: F811
+    def wsgi(environ, start_response):
         start_response('503 Service Unavailable', [('Content-Type', 'application/json'),
-                                                    ('Content-Length', str(len(_body)))])
-        return [_body]
+                                                   ('Content-Length', str(len(body)))])
+        return [body]
+    return wsgi
+
+
+def _build():
+    try:
+        from app import create_app
+        return create_app()
+    except Exception as e:  # noqa: BLE001
+        return _failed(e)
+
+
+# Vercel finds the application by this top-level name; keep it a plain assignment here.
+app = _build()
