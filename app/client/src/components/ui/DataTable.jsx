@@ -7,7 +7,10 @@ import { cn } from '../../lib/cn';
  * @param sort    {{key: string, dir: 1|-1}}
  */
 export function DataTable({ columns, rows, rowKey, onRowClick, sort, onSort, empty = 'Nothing to show.' }) {
-  if (!rows.length) return <div className="p-6 text-center text-muted">{empty}</div>;
+  if (!rows.length) {
+    // a sentence gets the plain treatment; an <Empty> (or anything else) is shown as given
+    return typeof empty === 'string' ? <div className="p-6 text-center text-muted">{empty}</div> : empty;
+  }
 
   return (
     <div className="max-h-[70vh] overflow-auto rounded-xl border border-line">

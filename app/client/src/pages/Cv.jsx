@@ -170,7 +170,9 @@ export default function Cv() {
               <CvDocument cv={cv} header={header} language={language} />
             </div>
           ) : (
-            <Empty>Write your notes, then press “Write with AI” or “Build without AI”.</Empty>
+            <Empty title="No CV yet">
+              Write your notes on the left, then press “Write with AI” or “Build without AI”.
+            </Empty>
           )}
         </Card>
       </div>

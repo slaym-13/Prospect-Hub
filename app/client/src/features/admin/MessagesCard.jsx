@@ -68,7 +68,7 @@ export function MessagesCard() {
       />
       {error && <Message tone="bad" className="mb-3">{error}</Message>}
       {!shown.length ? (
-        <Empty>{open.length || !items.length ? 'No messages yet.' : 'Nothing waiting for an answer.'}</Empty>
+        <Empty compact>{open.length || !items.length ? 'No messages yet.' : 'Nothing waiting for an answer.'}</Empty>
       ) : (
         <div className="grid gap-3">
           {shown.map((m) => (

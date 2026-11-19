@@ -15,11 +15,15 @@ const SUGGESTIONS = [
   'How many follow-ups are due today?'
 ];
 
-/** Chat with the built-in help assistant. The conversation is kept on the server. */
-export function AssistantPanel({ onClose }) {
+/**
+ * Chat with the built-in help assistant. The conversation is kept on the server.
+ * `initialQuestion` (from the Ctrl+K search) is asked as soon as the history is in.
+ */
+export function AssistantPanel({ onClose, initialQuestion = '' }) {
   const { config, reloadConfig } = useApp();
   const [history, setHistory] = useState([]);
-  const [question, setQuestion] = useState('');
+  const [question, setQuestion] = useState(initialQuestion);
+  const asked = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const endRef = useRef(null);
@@ -28,7 +32,14 @@ export function AssistantPanel({ onClose }) {
     api
       .assistantHistory()
       .then((r) => setHistory(r.history))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (initialQuestion && config.ai && !asked.current) {
+          asked.current = true; // StrictMode runs this twice in development
+          send(initialQuestion);
+        }
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

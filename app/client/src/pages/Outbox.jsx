@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { Card, CardHeader } from '../components/ui/Card';
-import { Message, Spinner } from '../components/ui/Feedback';
+import { Link } from 'react-router-dom';
+import { Button } from '../components/ui/Button';
+import { Empty, Message, Spinner } from '../components/ui/Feedback';
 import { Pill } from '../components/ui/Pill';
 import { DataTable } from '../components/ui/DataTable';
 import { LeadDrawer } from '../features/lead/LeadDrawer';
@@ -46,7 +48,18 @@ export default function Outbox() {
           rows={rows}
           rowKey={(s) => s.id || `${s.leadId}-${s.at}`}
           onRowClick={(s) => setOpenId(s.leadId)}
-          empty="Nothing sent yet."
+          empty={
+            <Empty
+              title="Nothing sent yet"
+              action={
+                <Button as={Link} to="/today" variant="primary">
+                  Pick a company to write to →
+                </Button>
+              }
+            >
+              Every email you send from a company's page is listed here, with its result.
+            </Empty>
+          }
         />
       </Card>
 

@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import './theme.css';
@@ -7,23 +7,17 @@ import { RequireAuth } from './components/layout/RequireAuth';
 import { AppLayout } from './components/layout/AppLayout';
 import { AppProvider } from './store/AppContext';
 
-import Login from './pages/Login';
-import Signup from './pages/Signup';
-import VerifyEmail from './pages/VerifyEmail';
-import ForgotPassword from './pages/ForgotPassword';
-import ResetPassword from './pages/ResetPassword';
-import Dashboard from './pages/Dashboard';
-import Today from './pages/Today';
-import Companies from './pages/Companies';
-import Pipeline from './pages/Pipeline';
-import Outbox from './pages/Outbox';
-import Settings from './pages/Settings';
-import Admin from './pages/Admin';
-import Cv from './pages/Cv';
+import { Pages } from './pages';
+import { Spinner } from './components/ui/Feedback';
+
+const { Login, Signup, VerifyEmail, ForgotPassword, ResetPassword, Dashboard, Today, Companies, Pipeline, Outbox, Settings, Admin, Cv } =
+  Pages;
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
+      {/* the sign-in pages; inside the app, AppLayout keeps its frame while a page loads */}
+      <Suspense fallback={<Spinner />}>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
@@ -50,6 +44,7 @@ createRoot(document.getElementById('root')).render(
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   </StrictMode>
 );

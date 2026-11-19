@@ -71,7 +71,10 @@
      a mono for small labels and data: a ledger more than a dashboard. */
   --font-sans: 'Instrument Sans', ui-sans-serif, sans-serif;
   --font-display: 'Fraunces', ui-serif, Georgia, serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* Recursive does two jobs: with MONO on, the small labels; with CASL on, the
+     figures, in a relaxed hand that keeps numbers friendly rather than formal. */
+  --font-mono: 'Recursive', ui-monospace, monospace;
+  --font-casual: 'Recursive', ui-rounded, ui-sans-serif, sans-serif;
   --shadow-card: var(--shadow);
   --radius-card: 18px;
   --ease-out-soft: cubic-bezier(0.2, 0.7, 0.2, 1);
@@ -143,6 +146,15 @@
   }
 }
 
+/* Recursive's axes, set wherever its families are used. */
+.font-mono {
+  font-variation-settings: 'MONO' 1, 'CASL' 0;
+}
+@utility font-casual {
+  font-family: var(--font-casual);
+  font-variation-settings: 'CASL' 1, 'MONO' 0;
+}
+
 /* ---------- motion ---------- */
 
 /* Each page arrives once, its blocks rising in order. `backwards` leaves no transform
@@ -200,6 +212,81 @@
 @utility animate-draw {
   transform-origin: left;
   animation: draw 0.9s var(--ease-out-soft) backwards;
+}
+
+/* ---------- the pipeline's case board ---------- */
+
+/* Cork from the palette's own amber, with a grain of fractal noise and a darker rim,
+   framed like a board on the wall. */
+.corkboard {
+  --cork: color-mix(in oklab, var(--warn) 34%, var(--bg));
+  --frame: color-mix(in oklab, var(--warn) 45%, var(--fg) 30%);
+  background-color: var(--cork);
+  background-image:
+    radial-gradient(ellipse at center, transparent 55%, rgb(60 30 0 / 0.18)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.35 0 0 0 0 0.2 0 0 0 0 0.05 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  box-shadow:
+    inset 0 0 0 9px var(--frame),
+    inset 0 0 0 10px rgb(0 0 0 / 0.25),
+    inset 0 10px 30px rgb(0 0 0 / 0.25),
+    0 18px 40px -18px rgb(40 20 0 / 0.45);
+}
+.dark .corkboard {
+  --cork: color-mix(in oklab, var(--warn) 16%, var(--bg));
+  --frame: color-mix(in oklab, var(--warn) 22%, #000);
+}
+
+/* An index card: faint blue rules under a red head line. */
+.index-card {
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(to bottom, transparent 26px, color-mix(in oklab, var(--bad) 45%, transparent) 26px, color-mix(in oklab, var(--bad) 45%, transparent) 27px, transparent 27px),
+    repeating-linear-gradient(to bottom, transparent 0 19px, color-mix(in oklab, var(--accent) 13%, transparent) 19px 20px);
+  background-position: 0 0, 0 8px;
+  box-shadow:
+    0 1px 1px rgb(0 0 0 / 0.12),
+    0 8px 14px -6px rgb(40 20 0 / 0.35);
+}
+
+/* A push pin: a glossy head in the stage's colour, set with --pin. */
+.pushpin {
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, rgb(255 255 255 / 0.75) 0 2px, var(--pin) 3.5px, color-mix(in oklab, var(--pin) 70%, #000) 100%);
+  box-shadow: 1px 3px 3px rgb(0 0 0 / 0.35);
+}
+
+/* A strip of masking tape across a label's top. */
+.tape {
+  position: relative;
+}
+.tape::before {
+  content: '';
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  width: 70px;
+  height: 18px;
+  translate: -50% 0;
+  rotate: -3deg;
+  background: color-mix(in oklab, var(--warn) 18%, rgb(255 255 255 / 0.55));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.15);
+}
+
+/* A rubber stamp on a closed case. */
+.stamp {
+  border: 2px solid currentColor;
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-family: var(--font-mono);
+  font-variation-settings: 'MONO' 1;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  rotate: -12deg;
+  opacity: 0.75;
 }
 
 @media (prefers-reduced-motion: reduce) {

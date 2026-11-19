@@ -6,7 +6,7 @@ export function KpiRow({ children }) {
 
 /**
  * One headline number, set like a figure in a ledger: a mono label above, the value
- * in the display serif. `hero` makes it the wide, solid-blue one with the tile.
+ * in Recursive's casual style. `hero` makes it the wide, solid-blue one with the tile.
  */
 export function Kpi({ label, value, detail, hero }) {
   return (
@@ -23,8 +23,8 @@ export function Kpi({ label, value, detail, hero }) {
       </div>
       <div
         className={cn(
-          'mt-1.5 font-display font-medium leading-none tabular-nums tracking-tight',
-          hero ? 'text-[56px]' : 'text-[34px]'
+          'mt-1.5 font-casual font-bold leading-none tabular-nums tracking-tight',
+          hero ? 'text-[54px]' : 'text-[34px]'
         )}
       >
         {value}

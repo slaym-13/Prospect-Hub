@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useApp } from '../store/AppContext';
 import { Button } from '../components/ui/Button';
@@ -104,7 +105,18 @@ export default function Today() {
               ))}
             </div>
           ) : (
-            <Empty>Nothing due. Log a contact with a next date and it will show up here.</Empty>
+            <Empty
+              title="No follow-ups due"
+              action={
+                start[0] && (
+                  <Button variant="primary" onClick={() => setOpenId(start[0].id)}>
+                    Start with {start[0].nom} →
+                  </Button>
+                )
+              }
+            >
+              When you log a call or an email with a next date, the company comes back here on that day.
+            </Empty>
           )}
 
           {!!noNextStep.length && (
@@ -163,7 +175,16 @@ export default function Today() {
               ))}
             </div>
           ) : (
-            <Empty>No new leads left. Check the category tiers in Settings.</Empty>
+            <Empty
+              title="Every lead is in play"
+              action={
+                <Button as={Link} to="/settings">
+                  Review the category tiers
+                </Button>
+              }
+            >
+              No untouched company is left in the categories you target. Widen them in Settings to see more.
+            </Empty>
           )}
         </section>
       </div>
