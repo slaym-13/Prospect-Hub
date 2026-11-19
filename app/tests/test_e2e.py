@@ -591,15 +591,18 @@ def test_shared_database_sees_what_another_instance_wrote(api):
     call('POST', '/api/login', ADMIN)
     lead_id = call('GET', '/api/leads')[1][0]['id']
 
+    def elsewhere(name, text):   # what another server instance does: it bypasses this one's cache
+        kv._memory[name] = (text, kv._memory[name][1] + 1)
+
     # another server instance changes a lead and adds an account, straight in the database
     db = json.loads(kv.read('db')[0])
     db['leads'][lead_id]['notes'] = 'written by another instance'
-    kv.write('db', json.dumps(db))
+    elsewhere('db', json.dumps(db))
     users = json.loads(kv.read('users')[0])
     from lib import auth
     users.append({'email': 'ailleurs@example.com', 'hash': auth.hash_password('mot-de-passe-ailleurs'),
                   'role': 'user', 'createdAt': '2026-01-01T00:00:00.000Z'})
-    kv.write('users', json.dumps(users))
+    elsewhere('users', json.dumps(users))
 
     assert call('GET', f'/api/leads/{lead_id}')[1]['notes'] == 'written by another instance'
     assert any(u['email'] == 'ailleurs@example.com' for u in call('GET', '/api/admin/users')[1])

@@ -87,9 +87,13 @@ def _read_raw():
 def refresh():
     """With a shared database, pick up what other server instances wrote since we loaded.
 
-    Costs one small query; the document itself is only fetched when it changed.
+    One small query per request covers both the data and the accounts; a document is
+    only fetched again when it changed.
     """
-    if kv.enabled() and _db is not None and kv.version('db') != _version:
+    if not kv.enabled():
+        return
+    current = kv.sync(('db', 'users'))
+    if _db is not None and current['db'] != _version:
         with LOCK:
             load()
 

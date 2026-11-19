@@ -1,6 +1,5 @@
 """Accounts, roles, signed session cookies, and each user's encrypted Gemini key."""
 import base64
-import copy
 import hashlib
 import hmac
 import json
@@ -12,7 +11,6 @@ from urllib.parse import unquote
 
 import bcrypt
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from flask import g, has_request_context
 
 from . import kv
 from .store import DATA_DIR
@@ -38,17 +36,12 @@ def _b64d(s):
 
 def read_users():
     if kv.enabled():
-        # One query per request, not one per call: a request asks several times.
-        if has_request_context() and '_ph_users' in g:
-            return copy.deepcopy(g._ph_users)
+        # From this process's copy; store.refresh() drops it when another instance wrote.
         text = kv.read('users')[0]
         try:
-            users = json.loads(text) if text else []
+            return json.loads(text) if text else []
         except ValueError:
-            users = []
-        if has_request_context():
-            g._ph_users = users
-        return copy.deepcopy(users)
+            return []
     try:
         with open(USERS_FILE, encoding='utf-8') as f:
             return json.load(f)
@@ -60,8 +53,6 @@ def write_users(users):
     with _users_lock:
         if kv.enabled():
             kv.write('users', json.dumps(users, ensure_ascii=False))
-            if has_request_context():
-                g._ph_users = copy.deepcopy(users)
             return
         os.makedirs(DATA_DIR, exist_ok=True)
         fd = os.open(USERS_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -417,13 +408,20 @@ def seed_admin():
     return {'email': email, 'created': True}
 
 
-_DUMMY_HASH = hash_password('not-a-real-password')
+_DUMMY_HASH = None   # made on first use: bcrypt costs about 250 ms, too much for every cold start
+
+
+def _dummy_hash():
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = hash_password('not-a-real-password')
+    return _DUMMY_HASH
 
 
 def check_login(email, password):
     email = str(email or '').strip().lower()
     u = next((x for x in read_users() if x['email'] == email), None)
-    ok = _check(str(password or ''), u['hash'] if u else _DUMMY_HASH)  # same work whether or not the user exists
+    ok = _check(str(password or ''), u['hash'] if u else _dummy_hash())  # same work whether or not the user exists
     return u['email'] if u and ok else None
 
 

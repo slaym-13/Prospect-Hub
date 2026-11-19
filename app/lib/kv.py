@@ -18,6 +18,7 @@ _lock = threading.RLock()
 _conn = None
 _ready = False
 _memory = {}
+_cache = {}   # name -> (text, version): this process's copy of each document
 
 
 def url():
@@ -43,14 +44,15 @@ def _setup(cur):
     # A schema of its own, not "public": Supabase publishes "public" through its REST
     # API. Row level security with no policies shuts that door too, in case the schema
     # is ever exposed. The connection string's role owns the table and is not affected.
-    cur.execute('CREATE SCHEMA IF NOT EXISTS prospect_hub')
-    cur.execute(f'CREATE TABLE IF NOT EXISTS {TABLE} ('
+    # One round trip: this runs on every cold start.
+    cur.execute('CREATE SCHEMA IF NOT EXISTS prospect_hub; '
+                f'CREATE TABLE IF NOT EXISTS {TABLE} ('
                 'name text PRIMARY KEY, data text NOT NULL, version bigint NOT NULL DEFAULT 1, '
-                'updated_at timestamptz NOT NULL DEFAULT now())')
-    cur.execute(f'ALTER TABLE {TABLE} ENABLE ROW LEVEL SECURITY')
+                'updated_at timestamptz NOT NULL DEFAULT now()); '
+                f'ALTER TABLE {TABLE} ENABLE ROW LEVEL SECURITY')
 
 
-def _run(sql, params=()):
+def _run(sql, params=(), many=False):
     """One statement on the shared connection, reconnecting once if it went stale."""
     global _conn, _ready
     import psycopg
@@ -64,7 +66,9 @@ def _run(sql, params=()):
                         _setup(cur)
                         _ready = True
                     cur.execute(sql, params)
-                    return cur.fetchone() if cur.description else None
+                    if not cur.description:
+                        return None
+                    return cur.fetchall() if many else cur.fetchone()
             except psycopg.OperationalError:
                 # A warm serverless instance can hold a connection the pooler has closed.
                 try:
@@ -76,8 +80,7 @@ def _run(sql, params=()):
                     raise
 
 
-def read(name):
-    """(text, version) of a document, or (None, 0) if it was never written."""
+def _fetch(name):
     if _is_memory():
         with _lock:
             return _memory.get(name, (None, 0))
@@ -85,12 +88,42 @@ def read(name):
     return (row[0], row[1]) if row else (None, 0)
 
 
-def version(name):
+def read(name):
+    """(text, version) of a document, or (None, 0) if it was never written.
+
+    Served from this process's copy when it has one; sync() drops copies that changed
+    elsewhere, so call it once at the start of each request.
+    """
+    with _lock:
+        if name in _cache:
+            return _cache[name]
+    got = _fetch(name)
+    with _lock:
+        _cache[name] = got
+    return got
+
+
+def sync(names):
+    """One query for the versions of several documents; forget the stale copies.
+
+    Returns {name: version}, 0 for a document never written.
+    """
     if _is_memory():
         with _lock:
-            return _memory.get(name, (None, 0))[1]
-    row = _run(f'SELECT version FROM {TABLE} WHERE name = %s', (name,))
-    return row[0] if row else 0
+            current = {n: _memory.get(n, (None, 0))[1] for n in names}
+    else:
+        rows = _run(f'SELECT name, version FROM {TABLE} WHERE name = ANY(%s)', (list(names),), many=True) or []
+        current = {n: 0 for n in names}
+        current.update({r[0]: r[1] for r in rows})
+    with _lock:
+        for n in names:
+            if n in _cache and _cache[n][1] != current[n]:
+                del _cache[n]
+    return current
+
+
+def version(name):
+    return read(name)[1]
 
 
 def write(name, text):
@@ -99,11 +132,13 @@ def write(name, text):
         with _lock:
             v = _memory.get(name, (None, 0))[1] + 1
             _memory[name] = (text, v)
-            return v
-    row = _run(f'INSERT INTO {TABLE} AS d (name, data) VALUES (%s, %s) '
-               'ON CONFLICT (name) DO UPDATE SET data = EXCLUDED.data, version = d.version + 1, '
-               'updated_at = now() RETURNING d.version', (name, text))
-    return row[0]
+    else:
+        v = _run(f'INSERT INTO {TABLE} AS d (name, data) VALUES (%s, %s) '
+                 'ON CONFLICT (name) DO UPDATE SET data = EXCLUDED.data, version = d.version + 1, '
+                 'updated_at = now() RETURNING d.version', (name, text))[0]
+    with _lock:
+        _cache[name] = (text, v)
+    return v
 
 
 def insert_if_missing(name, text):
@@ -112,6 +147,8 @@ def insert_if_missing(name, text):
         with _lock:
             if name not in _memory:
                 _memory[name] = (text, 1)
-            return _memory[name][0]
-    _run(f'INSERT INTO {TABLE} (name, data) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING', (name, text))
+    else:
+        _run(f'INSERT INTO {TABLE} (name, data) VALUES (%s, %s) ON CONFLICT (name) DO NOTHING', (name, text))
+    with _lock:
+        _cache.pop(name, None)
     return read(name)[0]
