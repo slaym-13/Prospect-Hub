@@ -51,14 +51,13 @@ de `ADMIN_EMAIL` et `ADMIN_PASSWORD` :
 ADMIN_EMAIL=vous@exemple.com ADMIN_PASSWORD='un mot de passe long' python server.py
 ```
 
-Sans ces variables, un compte de développement est créé avec des identifiants par
-défaut, et le serveur l'annonce dans la console au premier démarrage. Ces identifiants
-sont destinés au poste local uniquement.
+Sans `ADMIN_PASSWORD`, un serveur local crée `admin@prospecthub.com` avec un mot de
+passe aléatoire, affiché une seule fois dans la console au premier démarrage. Notez-le,
+ou changez-le depuis la page Admin.
 
-> **En production, `ADMIN_PASSWORD` est obligatoire.** Les identifiants par défaut sont
-> lisibles dans le code source : toute instance accessible publiquement qui les
-> conserve est ouverte à n'importe qui. Le serveur affiche un avertissement tant
-> qu'ils sont en usage.
+> **En production, `ADMIN_PASSWORD` est obligatoire.** Sur Vercel, aucun administrateur
+> n'est créé sans lui : le disque est effacé entre deux démarrages à froid, et un mot de
+> passe affiché changerait sans cesse.
 
 Chacun peut créer son propre compte depuis la page de connexion : **Créer un compte**
 demande le nom complet, le numéro de téléphone, l'adresse email, une ligne qui dit qui

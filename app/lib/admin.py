@@ -71,6 +71,8 @@ def create_admin_api():
         try:
             if 'password' in b:
                 auth.set_password(email, b['password'])
+            if b.get('verified') is True:
+                auth.mark_verified(email)
             if 'role' in b:
                 # Removing your own admin rights locks you out of this screen immediately.
                 if email == g.user and b['role'] != 'admin':

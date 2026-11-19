@@ -114,6 +114,11 @@ export function UsersCard() {
                   {u.email === config.user && <span className="ml-1.5 text-xs text-muted">(you)</span>}
                   {u.phone && <div className="text-xs text-muted">{u.phone}</div>}
                   {!u.fullName && <div className="text-xs text-muted">profile not filled in</div>}
+                  {!u.verified && (
+                    <Pill tone="warn" className="ml-1.5" title="Has not opened the confirmation link yet">
+                      email not confirmed
+                    </Pill>
+                  )}
                   {u.defaultPassword && (
                     <Pill tone="bad" className="ml-1.5" title="Change this before the app is reachable publicly">
                       default password
@@ -138,6 +143,16 @@ export function UsersCard() {
                 <td className="whitespace-nowrap px-3 py-2 text-muted">{shortDate(u.createdAt)}</td>
                 <td className="px-3 py-2">
                   <div className="flex justify-end gap-1.5">
+                    {!u.verified && (
+                      <Button
+                        size="sm"
+                        disabled={busy}
+                        title="Let this person sign in without clicking the emailed link"
+                        onClick={() => run(() => api.adminUpdateUser(u.email, { verified: true }), 'Email confirmed')}
+                      >
+                        Confirm email
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       disabled={busy}

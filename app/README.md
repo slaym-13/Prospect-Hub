@@ -35,13 +35,13 @@ On start, if the database holds no account, one is created from `ADMIN_EMAIL` an
 ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='a long password' python server.py
 ```
 
-Without those variables a development account is created instead, and the server
-prints its credentials to the console on first start. They are meant for a local
-machine only.
+Without `ADMIN_PASSWORD`, a local server creates `admin@prospecthub.com` with a random
+password and prints it to the console once, on first start. Note it down, or change it
+on the Admin page.
 
-> **`ADMIN_PASSWORD` is required in production.** The development credentials are
-> readable in the source, so any publicly reachable instance that keeps them is open
-> to anyone. The server warns on every start while they are in use.
+> **`ADMIN_PASSWORD` is required in production.** On Vercel no administrator is
+> created without it, because the disk is wiped between cold starts and a printed
+> password would keep changing.
 
 Anyone can create their own account from the sign-in page: **Create one** asks for a
 full name, a phone number, an email, a line saying who they are (for example

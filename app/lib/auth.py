@@ -226,7 +226,7 @@ def _check(password, hashed):
         return False
 
 
-def create_user(email, password, role='user', allow_short_password=False, profile=None):
+def create_user(email, password, role='user', allow_short_password=False, profile=None, verified=True):
     email = str(email or '').strip().lower()
     if not valid_email(email):
         raise ValueError('Enter a valid email address.')
@@ -238,6 +238,8 @@ def create_user(email, password, role='user', allow_short_password=False, profil
         user = {'email': email, 'hash': hashed, 'role': 'admin' if role == 'admin' else 'user', 'createdAt': now_iso()}
         if profile:
             user['profile'] = clean_profile(profile)
+        if not verified:
+            user['verified'] = False   # absent means verified: accounts made before this existed, or by an admin
         users.append(user)
         write_users(users)
 
@@ -254,6 +256,7 @@ def list_users():
         'createdAt': u.get('createdAt'),
         'hasAiKey': bool(u.get('aiKey')),
         'defaultPassword': bool(u.get('defaultPassword')),
+        'verified': u.get('verified') is not False,
     } for u in read_users()]
 
 
@@ -271,7 +274,7 @@ def count_admins():
     return sum(1 for u in read_users() if u.get('role') == 'admin')
 
 
-def set_password(email, password):
+def set_password(email, password, verify_email=False):
     if not isinstance(password, str) or len(password) < MIN_PASSWORD:
         raise ValueError(f'The password needs at least {MIN_PASSWORD} characters.')
     hashed = hash_password(password)
@@ -282,7 +285,26 @@ def set_password(email, password):
             raise ValueError('No such account.')
         u['hash'] = hashed
         u.pop('defaultPassword', None)   # whatever it is now, it is no longer the shipped one
+        if verify_email:
+            u.pop('verified', None)      # the reset link reached the inbox: that proves the address
         write_users(users)
+
+
+def is_verified(email):
+    u = get_user(email)
+    return bool(u) and u.get('verified') is not False
+
+
+def mark_verified(email):
+    with _users_lock:
+        users = read_users()
+        u = next((x for x in users if x['email'] == email), None)
+        if not u:
+            return False
+        if u.get('verified') is False:
+            u.pop('verified', None)
+            write_users(users)
+        return True
 
 
 def set_role(email, role):
@@ -310,7 +332,9 @@ def delete_user(email):
         write_users([x for x in users if x['email'] != email])
 
 
-DEFAULT_ADMIN = {'email': 'admin@prospecthub.com', 'password': 'adminPH'}
+# Only the address has a default. There is no default password: one written in the
+# source would let anyone into a public instance that forgot to set ADMIN_PASSWORD.
+DEFAULT_ADMIN_EMAIL = 'admin@prospecthub.com'
 
 
 def seed_admin():
@@ -321,8 +345,8 @@ def seed_admin():
     administrator, so the documented login always works. An existing password is never
     overwritten.
     """
-    email = (os.environ.get('ADMIN_EMAIL') or DEFAULT_ADMIN['email']).strip().lower()
-    password = os.environ.get('ADMIN_PASSWORD') or DEFAULT_ADMIN['password']
+    email = (os.environ.get('ADMIN_EMAIL') or DEFAULT_ADMIN_EMAIL).strip().lower()
+    password = os.environ.get('ADMIN_PASSWORD') or ''
     users = read_users()
     had_accounts = len(users) > 0
     had_admin = any(u.get('role') == 'admin' for u in users)
@@ -334,17 +358,27 @@ def seed_admin():
             write_users(users)
             print(f'Promoted {email} to administrator.')
         if existing.get('defaultPassword'):
-            print(f'  {email} still uses the development password. Set ADMIN_PASSWORD, or change it on the Admin page.')
+            print(f'  {email} still uses a development password. Change it on the Admin page.')
         return {'email': email, 'created': False}
 
+    generated = not password
+    if generated:
+        if os.environ.get('VERCEL'):
+            # The disk is wiped between cold starts, so a password printed once in the
+            # logs would keep changing. Better no administrator than that.
+            print('ADMIN_PASSWORD is not set: no administrator account was created. '
+                  'Set ADMIN_EMAIL and ADMIN_PASSWORD in the Vercel project settings, then redeploy.')
+            return {'email': email, 'created': False}
+        password = secrets.token_urlsafe(12)
+
     create_user(email, password, role='admin', allow_short_password=True)
-    if password == DEFAULT_ADMIN['password']:
+    if generated:
         # Flag it so later boots can keep warning without re-hashing to find out.
         lst = read_users()
         next(u for u in lst if u['email'] == email)['defaultPassword'] = True
         write_users(lst)
         print(f'\n  Development administrator created\n    email:    {email}\n    password: {password}\n'
-              '  Set ADMIN_EMAIL and ADMIN_PASSWORD before deploying this.\n')
+              '  It is shown only now. Set ADMIN_EMAIL and ADMIN_PASSWORD before deploying.\n')
     else:
         print(f'Created the administrator account {email}.')
 
@@ -376,20 +410,22 @@ def has_users():
 
 # ---------- signed, stateless session token ----------
 
-def _mac(body):
-    return _b64e(hmac.new(key().encode('utf-8'), body.encode('ascii'), hashlib.sha256).digest())
+def _mac(body, purpose=''):
+    # Each purpose signs with its own key, so an emailed link can never pass for a session cookie.
+    k = key() if not purpose else key() + '|' + purpose
+    return _b64e(hmac.new(k.encode('utf-8'), body.encode('ascii'), hashlib.sha256).digest())
 
 
-def sign(payload):
+def sign(payload, purpose=''):
     body = _b64e(json.dumps(payload, separators=(',', ':')).encode('utf-8'))
-    return body + '.' + _mac(body)
+    return body + '.' + _mac(body, purpose)
 
 
-def verify(token):
+def verify(token, purpose=''):
     if not isinstance(token, str) or '.' not in token:
         return None
     body, mac = token.split('.', 1)
-    if not hmac.compare_digest(mac.encode(), _mac(body).encode()):
+    if not hmac.compare_digest(mac.encode(), _mac(body, purpose).encode()):
         return None
     try:
         p = json.loads(_b64d(body))
@@ -420,6 +456,38 @@ def set_session(request, response, email):
 
 def clear_session(response):
     response.headers.add('Set-Cookie', f'{COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0')
+
+
+# ---------- emailed links: address verification and password reset ----------
+VERIFY_TTL_S = 48 * 3600
+RESET_TTL_S = 3600
+
+
+def _hash_print(u):
+    # Changes whenever the password does, so a reset link works once and dies with the old password.
+    return hashlib.sha256(('pw|' + u['hash']).encode('utf-8')).hexdigest()[:20]
+
+
+def make_verify_token(email):
+    return sign({'u': email, 'exp': now_ms() + VERIFY_TTL_S * 1000}, 'verify-email')
+
+
+def read_verify_token(token):
+    p = verify(str(token or ''), 'verify-email')
+    return p['u'] if p and get_user(p.get('u')) else None
+
+
+def make_reset_token(email):
+    u = get_user(email)
+    return sign({'u': u['email'], 'h': _hash_print(u), 'exp': now_ms() + RESET_TTL_S * 1000}, 'reset-password')
+
+
+def read_reset_token(token):
+    p = verify(str(token or ''), 'reset-password')
+    if not p:
+        return None
+    u = get_user(p.get('u'))
+    return u['email'] if u and hmac.compare_digest(str(p.get('h', '')), _hash_print(u)) else None
 
 
 # ---------- brute-force guard: 5 failures per ip+email, then 15 minutes ----------

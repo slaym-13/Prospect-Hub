@@ -5,11 +5,14 @@ import { Button } from '../components/ui/Button';
 import { Field, Input } from '../components/ui/Field';
 import { Message } from '../components/ui/Feedback';
 import { AuthShell } from '../features/auth/AuthShell';
+import { CheckInbox } from '../features/auth/CheckInbox';
 
 export default function Login() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: '', password: '' });
   const [canSignup, setCanSignup] = useState(false);
+  const [canEmail, setCanEmail] = useState(false);
+  const [unverified, setUnverified] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -18,7 +21,10 @@ export default function Login() {
       .session()
       .then((s) => {
         if (s.user) navigate('/', { replace: true });
-        else setCanSignup(s.allowSignup !== false);
+        else {
+          setCanSignup(s.allowSignup !== false);
+          setCanEmail(s.canEmail === true);
+        }
       })
       .catch(() => {});
   }, [navigate]);
@@ -34,9 +40,25 @@ export default function Login() {
       await api.login(form.email, form.password);
       navigate('/', { replace: true });
     } catch (err) {
-      setError(err.message);
+      if (err.body.code === 'UNVERIFIED') setUnverified(form.email.trim().toLowerCase());
+      else setError(err.message);
       setBusy(false);
     }
+  }
+
+  if (unverified) {
+    return (
+      <AuthShell
+        title="Confirm your email"
+        subtitle="One more step before you can sign in."
+        footer={<button type="button" className="text-accent" onClick={() => setUnverified('')}>Back to sign in</button>}
+      >
+        <CheckInbox email={unverified}>
+          Your account is waiting for you to confirm <strong className="break-all text-fg">{unverified}</strong>. Open the
+          link in the email we sent, or ask for a new one.
+        </CheckInbox>
+      </AuthShell>
+    );
   }
 
   return (
@@ -52,6 +74,11 @@ export default function Login() {
         <Field label="Password">
           <Input type="password" autoComplete="current-password" required value={form.password} onChange={set('password')} />
         </Field>
+        {canEmail && (
+          <Link to="/forgot-password" className="-mt-1 justify-self-end text-xs text-accent">
+            Forgot your password?
+          </Link>
+        )}
         {error && <Message tone="bad">{error}</Message>}
         <Button type="submit" variant="primary" disabled={busy} className="mt-1 justify-center py-2.5">
           {busy ? 'Please wait…' : 'Sign in'}

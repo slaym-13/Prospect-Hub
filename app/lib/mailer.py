@@ -8,6 +8,10 @@ from email.utils import formataddr, make_msgid
 from .util import ApiError
 
 
+# The last dry-run messages, newest last, so links in them can be followed without a mail server.
+DRY_RUN_SENT = []
+
+
 def mode():
     if os.environ.get('SMTP_MODE') == 'json':
         return 'dry-run'
@@ -22,7 +26,7 @@ def _from():
     return email, (formataddr((name, email)) if name else email)
 
 
-def send(to, subject, text, reply_to=''):
+def send(to, subject, text, reply_to='', transactional=False):
     m = mode()
     if m == 'off':
         raise ApiError('SMTP is not configured. Set SMTP_HOST, SMTP_USER and SMTP_PASS in .env '
@@ -34,12 +38,17 @@ def send(to, subject, text, reply_to=''):
     msg['Subject'] = subject
     if reply_to:
         msg['Reply-To'] = reply_to
-    msg['List-Unsubscribe'] = f'<mailto:{from_email}?subject=stop>'
+    if not transactional:   # account emails (verification, reset) are not something to unsubscribe from
+        msg['List-Unsubscribe'] = f'<mailto:{from_email}?subject=stop>'
     msg['Message-ID'] = make_msgid(domain=from_email.split('@')[-1])
     msg.set_content(text)
 
     if m == 'dry-run':
         print('[dry-run] ' + json.dumps({'to': to, 'subject': subject, 'messageId': msg['Message-ID']}, ensure_ascii=False))
+        if transactional:
+            print(text)   # nobody receives it, so the link has to be readable somewhere
+        DRY_RUN_SENT.append({'to': to, 'subject': subject, 'text': text})
+        del DRY_RUN_SENT[:-50]
         return {'mode': m, 'messageId': msg['Message-ID']}
 
     host = os.environ['SMTP_HOST']

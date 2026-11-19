@@ -13,7 +13,9 @@ DAY_S = 24 * 3600
 
 # Routes that answer without a session. Everything else under /api needs one.
 PUBLIC = {('POST', '/api/login'), ('POST', '/api/logout'), ('GET', '/api/session'),
-          ('POST', '/api/signup'), ('POST', '/api/setup')}
+          ('POST', '/api/signup'), ('POST', '/api/setup'),
+          ('POST', '/api/verify-email'), ('POST', '/api/resend-verification'),
+          ('POST', '/api/forgot-password'), ('POST', '/api/reset-password')}
 
 OUTCOMES = {'no_answer': 'contacted', 'callback': 'contacted', 'interested': 'replied', 'demo': 'meeting',
             'not_interested': 'lost', 'wrong': 'lost', 'won': 'won'}
@@ -58,6 +60,47 @@ def _rate(hits, k, limit, window_s):
     recent.append(now)
     hits[k] = recent
     return False
+
+
+def app_url(path):
+    """An absolute link into the client, for an email.
+
+    Set APP_URL in production: without it the link is built from the Host header of the
+    request, which whoever asks for a reset link controls.
+    """
+    base = (os.environ.get('APP_URL') or request.host_url).rstrip('/')
+    return base + path
+
+
+def send_verification(email):
+    """Email the link that confirms this address. True when it went out."""
+    link = app_url('/verify-email?token=' + auth.make_verify_token(email))
+    text = ('Welcome to Prospect Hub.\n\n'
+            'Confirm your email address to finish creating your account:\n\n'
+            f'{link}\n\n'
+            f'The link works for {auth.VERIFY_TTL_S // 3600} hours. '
+            'If you did not create this account, ignore this email.\n')
+    try:
+        mailer.send(email, 'Confirm your email address', text, transactional=True)
+        return True
+    except Exception as e:
+        print('Could not send the verification email to', email, '-', e)
+        return False
+
+
+def send_reset(email):
+    link = app_url('/reset-password?token=' + auth.make_reset_token(email))
+    text = ('Someone asked to reset the password of your Prospect Hub account.\n\n'
+            'Choose a new password here:\n\n'
+            f'{link}\n\n'
+            f'The link works once, for {auth.RESET_TTL_S // 60} minutes. '
+            'If you did not ask for it, ignore this email: your password stays as it is.\n')
+    try:
+        mailer.send(email, 'Reset your password', text, transactional=True)
+        return True
+    except Exception as e:
+        print('Could not send the password reset email to', email, '-', e)
+        return False
 
 
 def messages():
@@ -110,6 +153,8 @@ def create_api():
             auth.note_fail(k)
             return err(401, 'Incorrect email or password.')
         auth.note_ok(k)
+        if not auth.is_verified(user):
+            return err(403, 'Confirm your email address first: open the link we sent you.', code='UNVERIFIED')
         res = jsonify({'ok': True, 'user': user})
         auth.set_session(request, res, user)
         return res
@@ -124,7 +169,8 @@ def create_api():
     def session():
         s = auth.session_from(request)
         return jsonify({'user': s['u'] if s else None, 'needsSetup': not auth.has_users(),
-                        'allowSignup': db()['settings'].get('allowSignup') is not False})
+                        'allowSignup': db()['settings'].get('allowSignup') is not False,
+                        'canEmail': mailer.mode() != 'off'})
 
     # ----- sign-up -----
     signup_hits = {}
@@ -159,14 +205,85 @@ def create_api():
             return err(400, problem)
         if auth.get_user(email):
             return err(409, 'That address cannot be used. Try another, or sign in.')
+        # Without a way to send email there is nothing to verify with, so the account is
+        # usable at once, as before. With one, it waits for the link.
+        must_verify = mailer.mode() != 'off'
         try:
-            auth.create_user(email, password, profile=profile)
+            auth.create_user(email, password, profile=profile, verified=not must_verify)
         except ValueError as e:
             return err(400, str(e))
         hits.append(now)
         signup_hits[client_ip()] = hits
-        res = jsonify({'ok': True, 'user': email})
+        if must_verify:
+            sent = send_verification(email)
+            res = jsonify({'ok': True, 'user': email, 'verify': True, 'sent': sent})
+            res.status_code = 201
+            return res
+        res = jsonify({'ok': True, 'user': email, 'verify': False})
         res.status_code = 201
+        auth.set_session(request, res, email)
+        return res
+
+    # ----- email verification and password reset -----
+    # Asking for a link always answers the same way, so these cannot tell anyone which
+    # addresses have accounts. Each is limited per address and per caller.
+    link_hits = {}
+
+    def too_many_links(kind, email):
+        return _rate(link_hits, (kind, 'ip', client_ip()), 10, 3600) or _rate(link_hits, (kind, email), 3, 3600)
+
+    @r.post('/verify-email')
+    def verify_email():
+        email = auth.read_verify_token(clip(body().get('token'), 2000))
+        if not email:
+            return err(400, 'This link is invalid or has expired. Sign in to get a new one.', code='BAD_TOKEN')
+        auth.mark_verified(email)
+        res = jsonify({'ok': True, 'user': email})
+        auth.set_session(request, res, email)
+        return res
+
+    @r.post('/resend-verification')
+    def resend_verification():
+        email = clip(body().get('email'), 120).strip().lower()
+        if not auth.valid_email(email):
+            return err(400, 'Enter a valid email address.')
+        if mailer.mode() == 'off':
+            return err(503, 'This server cannot send email. Ask an administrator.')
+        if too_many_links('verify', email):
+            return err(429, 'Too many emails asked for. Try again in an hour.')
+        u = auth.get_user(email)
+        if u and u.get('verified') is False:
+            send_verification(email)
+        return jsonify({'ok': True})
+
+    @r.post('/forgot-password')
+    def forgot_password():
+        email = clip(body().get('email'), 120).strip().lower()
+        if not auth.valid_email(email):
+            return err(400, 'Enter a valid email address.')
+        if mailer.mode() == 'off':
+            return err(503, 'This server cannot send email. Ask an administrator to reset your password.')
+        if too_many_links('reset', email):
+            return err(429, 'Too many emails asked for. Try again in an hour.')
+        if auth.get_user(email):
+            send_reset(email)
+        return jsonify({'ok': True})
+
+    @r.post('/reset-password')
+    def reset_password():
+        b = body()
+        email = auth.read_reset_token(clip(b.get('token'), 2000))
+        if not email:
+            return err(400, 'This link is invalid, expired or already used. Ask for a new one.', code='BAD_TOKEN')
+        password, confirm = clip(b.get('password'), 200), clip(b.get('confirm'), 200)
+        if password != confirm:
+            return err(400, 'The two passwords do not match.')
+        try:
+            auth.set_password(email, password, verify_email=True)
+        except ValueError as e:
+            return err(400, str(e))
+        auth.note_ok(client_ip() + '|' + email)   # someone locked out can sign in again at once
+        res = jsonify({'ok': True, 'user': email})
         auth.set_session(request, res, email)
         return res
 

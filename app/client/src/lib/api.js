@@ -31,6 +31,10 @@ export const api = {
   session: () => get('/api/session'),
   login: (email, password) => request('POST', '/api/login', { email, password }),
   signup: (form) => request('POST', '/api/signup', form),
+  verifyEmail: (token) => request('POST', '/api/verify-email', { token }),
+  resendVerification: (email) => request('POST', '/api/resend-verification', { email }),
+  forgotPassword: (email) => request('POST', '/api/forgot-password', { email }),
+  resetPassword: (token, password, confirm) => request('POST', '/api/reset-password', { token, password, confirm }),
   logout: () => request('POST', '/api/logout', {}),
 
   config: () => get('/api/config'),

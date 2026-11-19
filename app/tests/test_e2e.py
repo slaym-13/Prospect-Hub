@@ -20,7 +20,8 @@ for k in ('GOOGLE_PLACES_API_KEY', 'ADMIN_EMAIL', 'ADMIN_PASSWORD', 'TRUST_PROXY
     os.environ.pop(k, None)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-ADMIN = {'email': 'admin@prospecthub.com', 'password': 'adminPH'}
+ADMIN = {'email': 'admin@prospecthub.com', 'password': 'test-admin-password'}
+os.environ.update(ADMIN_EMAIL=ADMIN['email'], ADMIN_PASSWORD=ADMIN['password'])
 AI = {'key_checks': 0, 'last': None}
 
 
@@ -306,8 +307,18 @@ def test_sign_up_confirmation_validation_and_admin_switch(api):
     assert 'phone' in signup({**ok, 'phone': '12'})[1]['error']
     assert signup({**ok, 'headline': ''})[0] == 400
 
-    # a good one signs the person straight in, as an ordinary user
-    assert signup(ok)[0] == 201
+    # a good one creates the account, but it waits for the emailed link before anyone signs in
+    from lib import mailer
+    status, created = signup(ok)
+    assert status == 201 and created['verify'] is True and created['sent'] is True
+    assert call('GET', '/api/session')[1]['user'] is None
+    status, blocked = call('POST', '/api/login', {'email': ok['email'], 'password': ok['password']})
+    assert status == 403 and blocked['code'] == 'UNVERIFIED'
+    mail = mailer.DRY_RUN_SENT[-1]
+    assert mail['to'] == 'nouveau@example.com'
+    token = re.search(r'/verify-email\?token=(\S+)', mail['text']).group(1)
+    assert call('POST', '/api/verify-email', {'token': token + 'x'})[0] == 400
+    assert call('POST', '/api/verify-email', {'token': token})[0] == 200
     assert call('GET', '/api/session')[1]['user'] == 'nouveau@example.com'
     assert call('GET', '/api/config')[1]['isAdmin'] is False
     assert call('GET', '/api/config')[1]['profileComplete'] is True
@@ -331,6 +342,56 @@ def test_sign_up_confirmation_validation_and_admin_switch(api):
     api.cookie = admin
     call('PATCH', '/api/admin/signup', {'enabled': True})
     call('DELETE', '/api/admin/users/nouveau@example.com')
+
+
+def test_resend_verification_and_forgotten_password(api):
+    from lib import auth, mailer
+    call = api.call
+    admin = api.cookie
+    api.cookie = ''
+    auth.create_user('oubli@example.com', 'premier-mot-de-passe', verified=False)
+
+    # resending: same answer whether or not the account exists, and only unverified ones get mail
+    n = len(mailer.DRY_RUN_SENT)
+    assert call('POST', '/api/resend-verification', {'email': 'personne@example.com'}) == (200, {'ok': True})
+    assert len(mailer.DRY_RUN_SENT) == n
+    assert call('POST', '/api/resend-verification', {'email': 'oubli@example.com'})[0] == 200
+    assert '/verify-email?token=' in mailer.DRY_RUN_SENT[-1]['text']
+    assert call('POST', '/api/resend-verification', {'email': 'pas-une-adresse'})[0] == 400
+
+    # forgotten password: nothing is revealed about unknown addresses
+    n = len(mailer.DRY_RUN_SENT)
+    assert call('POST', '/api/forgot-password', {'email': 'personne@example.com'}) == (200, {'ok': True})
+    assert len(mailer.DRY_RUN_SENT) == n
+    assert call('POST', '/api/forgot-password', {'email': 'oubli@example.com'})[0] == 200
+    mail = mailer.DRY_RUN_SENT[-1]
+    assert mail['to'] == 'oubli@example.com'
+    token = re.search(r'/reset-password\?token=(\S+)', mail['text']).group(1)
+
+    # an email link is not a session, and a verify link is not a reset link
+    assert auth.verify(token) is None
+    verify_token = auth.make_verify_token('oubli@example.com')
+    assert call('POST', '/api/reset-password', {'token': verify_token, 'password': 'x' * 12, 'confirm': 'x' * 12})[0] == 400
+
+    new = 'nouveau-mot-de-passe'
+    assert call('POST', '/api/reset-password', {'token': token, 'password': new, 'confirm': 'autre'})[0] == 400
+    assert call('POST', '/api/reset-password', {'token': token, 'password': 'court', 'confirm': 'court'})[0] == 400
+    assert call('POST', '/api/reset-password', {'token': token, 'password': new, 'confirm': new})[0] == 200
+    assert call('GET', '/api/session')[1]['user'] == 'oubli@example.com'
+    # the link worked once; the old password is gone; the reset also proved the address
+    status, again = call('POST', '/api/reset-password', {'token': token, 'password': new + '2', 'confirm': new + '2'})
+    assert status == 400 and again['code'] == 'BAD_TOKEN'
+    call('POST', '/api/logout', {})
+    assert call('POST', '/api/login', {'email': 'oubli@example.com', 'password': 'premier-mot-de-passe'})[0] == 401
+    assert call('POST', '/api/login', {'email': 'oubli@example.com', 'password': new})[0] == 200
+
+    # three link requests per address per hour
+    api.cookie = ''
+    codes = [call('POST', '/api/forgot-password', {'email': 'oubli@example.com'})[0] for _ in range(3)]
+    assert codes[-1] == 429
+
+    api.cookie = admin
+    call('DELETE', '/api/admin/users/oubli@example.com')
 
 
 def test_admin_seeded_administrator_accounts_and_records(api):

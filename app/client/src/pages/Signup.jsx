@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { Field, Input, Textarea } from '../components/ui/Field';
 import { Message } from '../components/ui/Feedback';
 import { AuthShell } from '../features/auth/AuthShell';
+import { CheckInbox } from '../features/auth/CheckInbox';
 
 const MIN_PASSWORD = 10;
 const PHONE = /^\+?[0-9 ().-]{8,24}$/;
@@ -20,6 +21,7 @@ export default function Signup() {
   const navigate = useNavigate();
   const [form, setForm] = useState(BLANK);
   const [open, setOpen] = useState(true);
+  const [pending, setPending] = useState(null); // { email, sent } once the account waits for its link
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -53,12 +55,36 @@ export default function Signup() {
     if (!ready) return;
     setBusy(true);
     try {
-      await api.signup(form);
+      const res = await api.signup(form);
+      if (res.verify) {
+        setPending({ email: res.user, sent: res.sent !== false });
+        setBusy(false);
+        return;
+      }
       navigate('/', { replace: true });
     } catch (err) {
       setError(err.message);
       setBusy(false);
     }
+  }
+
+  if (pending) {
+    return (
+      <AuthShell
+        title="Check your inbox"
+        subtitle="Your account is created. Confirm your email address to start."
+        footer={<Link to="/login">Back to sign in</Link>}
+      >
+        {pending.sent ? (
+          <CheckInbox email={pending.email} />
+        ) : (
+          <CheckInbox email={pending.email}>
+            Your account is created, but the confirmation email could not be sent just now. Try again below, or ask an
+            administrator to confirm <strong className="break-all text-fg">{pending.email}</strong>.
+          </CheckInbox>
+        )}
+      </AuthShell>
+    );
   }
 
   if (!open) {
