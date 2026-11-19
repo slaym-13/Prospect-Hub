@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useApp } from '../../store/AppContext';
 import { useTheme } from '../../hooks/useTheme';
@@ -10,6 +10,7 @@ import { AssistantPanel } from '../../features/assistant/AssistantPanel';
 import { ContactAdminPanel } from '../../features/messages/ContactAdminPanel';
 import { Message } from '../ui/Feedback';
 import { cn } from '../../lib/cn';
+import { Mark } from '../../features/auth/AuthShell';
 
 const TABS = [
   ['/', 'Dashboard'],
@@ -22,19 +23,11 @@ const TABS = [
   ['/admin', 'Admin', 'admin']   // only shown to administrators
 ];
 
-function Logo() {
-  return (
-    <span className="relative inline-block size-7 shrink-0 rounded-full bg-accent" aria-hidden="true">
-      <span className="absolute left-2 top-[7px] h-3.5 w-[5px] bg-accent-fg" />
-      <span className="absolute left-[15px] top-[11px] h-2.5 w-[5px] bg-accent-fg" />
-    </span>
-  );
-}
-
 export function AppLayout() {
   const { config, toasts, leads } = useApp();
   const { theme, cycleTheme } = useTheme();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [askOpen, setAskOpen] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
 
@@ -55,12 +48,12 @@ export function AppLayout() {
 
   return (
     <>
-      <header className="sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-line bg-surface/80 backdrop-blur-md backdrop-saturate-150">
         <div className="mx-auto flex max-w-[1240px] flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
-          <div className="flex items-center gap-2.5 text-[17px] font-bold tracking-tight">
-            <Logo />
+          <Link to="/" className="flex items-center gap-2.5 font-display text-[19px] font-semibold tracking-tight text-fg no-underline">
+            <Mark inverted={false} />
             Prospect Hub
-          </div>
+          </Link>
 
           <nav aria-label="Sections" className="order-3 flex w-full flex-1 basis-full gap-1 overflow-x-auto md:order-none md:w-auto md:basis-auto [scrollbar-width:none]">
             {TABS.filter(([, , onlyFor]) => !onlyFor || config?.isAdmin).map(([to, label]) => (
@@ -70,7 +63,7 @@ export function AppLayout() {
                 end={to === '/'}
                 className={({ isActive }) =>
                   cn(
-                    'flex items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-medium transition-colors',
+                    'flex items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2 text-sm font-medium no-underline transition-colors duration-200',
                     isActive ? 'bg-accent-soft font-semibold text-accent' : 'text-muted hover:bg-surface-2 hover:text-fg'
                   )
                 }
@@ -123,7 +116,7 @@ export function AppLayout() {
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-[1240px] grid-cols-[minmax(0,1fr)] gap-4 px-4 pb-16 pt-5">
+      <main className="mx-auto grid max-w-[1240px] grid-cols-[minmax(0,1fr)] gap-4 px-4 pb-16 pt-6">
         <JobBar />
         {config && !config.profileComplete && (
           <Message>
@@ -131,7 +124,10 @@ export function AppLayout() {
             <Link to="/settings">Complete it in Settings</Link>.
           </Message>
         )}
-        <Outlet />
+        {/* keyed by the route, so each page plays its entrance once when it opens */}
+        <div key={pathname} className="stagger grid grid-cols-[minmax(0,1fr)] gap-4">
+          <Outlet />
+        </div>
       </main>
 
       {askOpen && <AssistantPanel onClose={() => setAskOpen(false)} />}

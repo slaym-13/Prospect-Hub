@@ -67,17 +67,67 @@
   --color-bad-soft: var(--bad-soft);
   --color-neutral: var(--neutral);
 
-  --font-sans: 'Roboto', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* An editorial serif for headings and headline figures, a crisp sans for reading,
+     a mono for small labels and data: a ledger more than a dashboard. */
+  --font-sans: 'Instrument Sans', ui-sans-serif, sans-serif;
+  --font-display: 'Fraunces', ui-serif, Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   --shadow-card: var(--shadow);
   --radius-card: 18px;
+  --ease-out-soft: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* A zellige tile: the eight-pointed star of Marrakech's walls, as an outline lattice.
+   Used as a mask, so it takes whatever colour sits behind it. */
+:root {
+  --zellige: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 56 56'%3E%3Cg fill='none' stroke='black' stroke-width='1.1'%3E%3Crect x='17' y='17' width='22' height='22'/%3E%3Crect x='17' y='17' width='22' height='22' transform='rotate(45 28 28)'/%3E%3Ccircle cx='28' cy='28' r='4.5'/%3E%3Cpath d='M28 0v12.4M28 43.6V56M0 28h12.4M43.6 28H56M0 0l9 9M56 0l-9 9M0 56l9-9M56 56l-9-9'/%3E%3C/g%3E%3C/svg%3E");
 }
 
 @layer base {
   body {
-    background: var(--bg);
+    /* Depth from the palette itself: a blue glow top left, a warm one top right. */
+    background:
+      radial-gradient(1100px 620px at 8% -12%, color-mix(in oklab, var(--accent) 13%, transparent), transparent 62%),
+      radial-gradient(800px 480px at 105% 4%, color-mix(in oklab, var(--warn) 9%, transparent), transparent 60%),
+      var(--bg);
+    background-attachment: fixed;
     color: var(--fg);
     font-family: var(--font-sans);
+    font-size: 15px;
     -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  /* The tile lattice over the top of the page, fading out as content begins. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: 520px;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--accent);
+    opacity: 0.055;
+    -webkit-mask: var(--zellige) 0 0 / 56px 56px, linear-gradient(#000, transparent);
+    -webkit-mask-composite: source-in;
+    mask: var(--zellige) 0 0 / 56px 56px, linear-gradient(#000, transparent);
+    mask-composite: intersect;
+  }
+  .dark body::before {
+    opacity: 0.09;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+    letter-spacing: -0.015em;
+  }
+  h1 {
+    font-weight: 600;
+  }
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-fg);
   }
   /* Form controls inherit the page font rather than the browser default. */
   button,
@@ -93,6 +143,75 @@
   }
 }
 
+/* ---------- motion ---------- */
+
+/* Each page arrives once, its blocks rising in order. `backwards` leaves no transform
+   behind afterwards, so fixed drawers inside a block still pin to the window. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes draw {
+  from {
+    transform: scaleX(0);
+  }
+}
+.stagger > * {
+  animation: rise 0.55s var(--ease-out-soft) backwards;
+}
+.stagger > :nth-child(2) { animation-delay: 60ms; }
+.stagger > :nth-child(3) { animation-delay: 120ms; }
+.stagger > :nth-child(4) { animation-delay: 180ms; }
+.stagger > :nth-child(5) { animation-delay: 240ms; }
+.stagger > :nth-child(6) { animation-delay: 300ms; }
+.stagger > :nth-child(7) { animation-delay: 360ms; }
+.stagger > :nth-child(n + 8) { animation-delay: 420ms; }
+
+/* Utilities for the few places that use the tile or the motion directly. */
+@utility zellige {
+  position: relative;
+  isolation: isolate;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: currentColor;
+    opacity: var(--zellige-opacity, 0.12);
+    -webkit-mask: var(--zellige) 0 0 / 56px 56px;
+    mask: var(--zellige) 0 0 / 56px 56px;
+    border-radius: inherit;
+  }
+}
+@utility animate-rise {
+  animation: rise 0.6s var(--ease-out-soft) backwards;
+}
+@utility animate-fade {
+  animation: fade 0.8s ease backwards;
+}
+@utility animate-draw {
+  transform-origin: left;
+  animation: draw 0.9s var(--ease-out-soft) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
 /* The CV page prints only the CV: its print copy lives directly under <body>. */
 #cv-print {
   display: none;
@@ -103,6 +222,9 @@
   }
   body {
     background: #fff;
+  }
+  body::before {
+    display: none;
   }
   body > *:not(#cv-print) {
     display: none !important;

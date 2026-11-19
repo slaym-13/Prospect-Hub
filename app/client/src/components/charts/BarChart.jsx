@@ -4,6 +4,9 @@ import {
 } from 'chart.js';
 
 Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
+// The app's reading face, so axis labels match the text around the chart.
+Chart.defaults.font.family = "'Instrument Sans', ui-sans-serif, sans-serif";
+Chart.defaults.font.size = 12;
 
 /** Read a theme token, so charts follow the light/dark tokens like everything else. */
 const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -23,7 +26,8 @@ function buildOptions({ horizontal, legend, stacked, tooltipLabel }) {
   return {
     responsive: true,
     maintainAspectRatio: false,
-    animation: { duration: 250 },
+    // bars grow in with the page's entrance; later updates reuse the same easing
+    animation: { duration: 700, easing: 'easeOutQuart' },
     indexAxis: horizontal ? 'y' : 'x',
     plugins: {
       legend: {
